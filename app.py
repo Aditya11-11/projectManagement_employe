@@ -1,9 +1,10 @@
 import os
 from datetime import datetime, timedelta
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify,send_from_directory, abort
 from flask_sqlalchemy import SQLAlchemy
 from flask_socketio import SocketIO, emit, join_room, leave_room
-from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.security import generate_password_hash, check_password_hash 
+from werkzeug.utils import secure_filename
 
 # JWT imports
 from flask_jwt_extended import (
@@ -21,6 +22,12 @@ app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:/
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # Set a secret key for JWT (change this in production)
 app.config['JWT_SECRET_KEY'] = 'super-secret-key'
+
+
+# Define and set the upload folder
+UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 # Initialize SQLAlchemy, JWTManager, and SocketIO
 db = SQLAlchemy(app)
@@ -50,7 +57,7 @@ class Admin(db.Model):  # admin data
     email = db.Column(db.String(100), unique=True, nullable=False)
     password = db.Column(db.String(128), nullable=False)
 
-class Task(db.Model):
+class Task(db.Model): # Task Data
     __tablename__ = 'tasks'
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(100), nullable=False)
@@ -59,7 +66,7 @@ class Task(db.Model):
     priority = db.Column(db.String(10), default='Medium')  # "Low", "Medium", or "High"
     assigned_to = db.Column(db.String(100), default='')
 
-class PolicyDocument(db.Model):
+class PolicyDocument(db.Model): # Policy Document tab
     __tablename__ = 'policy_documents'
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(200), nullable=False)
@@ -68,7 +75,7 @@ class PolicyDocument(db.Model):
     doc_url = db.Column(db.String(500), default='')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-class PolicyAcknowledgement(db.Model):
+class PolicyAcknowledgement(db.Model): #acknowledge_policy_document
     __tablename__ = 'policy_acknowledgements'
     id = db.Column(db.Integer, primary_key=True)
     policy_id = db.Column(db.Integer, db.ForeignKey('policy_documents.id'), nullable=False)
@@ -76,7 +83,7 @@ class PolicyAcknowledgement(db.Model):
     ack_status = db.Column(db.String(50), default='Acknowledged')
     ack_date = db.Column(db.DateTime, default=datetime.utcnow)
 
-class LeaveRequest(db.Model):
+class LeaveRequest(db.Model): #leverequest table
     __tablename__ = 'leave_requests'
     id = db.Column(db.Integer, primary_key=True)
     employee_id = db.Column(db.Integer, nullable=False)
@@ -87,7 +94,7 @@ class LeaveRequest(db.Model):
     status = db.Column(db.String(20), default='Pending')     # "Pending", "Approved", "Rejected"
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-class EmployeeLeaveBalance(db.Model):
+class EmployeeLeaveBalance(db.Model): #EMPLOYE LEAVE BALANCE DATA 
     """
     Tracks how many annual leave days an employee has left for a given year.
     Default is 50.0 days per year.
@@ -97,6 +104,37 @@ class EmployeeLeaveBalance(db.Model):
     employee_id = db.Column(db.Integer, nullable=False)
     year = db.Column(db.Integer, nullable=False)
     annual_remaining = db.Column(db.Float, default=50.0)
+
+class Shift(db.Model): #SHIFT DATA
+    __tablename__ = 'shifts'
+    id = db.Column(db.Integer, primary_key=True)
+    staff_member = db.Column(db.String(100), nullable=False)  # e.g. "Ryan - Cloud System Engineer"
+    shift_name   = db.Column(db.String(50), nullable=False)   # e.g. "Morning (07:00 - 13:00)"
+    date         = db.Column(db.String(10), nullable=False)   # "dd-mm-yyyy"
+    notes        = db.Column(db.String(200), default='') 
+
+
+class PersonalInfo(db.Model): #PERSONAL INFOMARTION DATA
+    __tablename__ = 'personal_info'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    first_name = db.Column(db.String(50), nullable=False)
+    last_name  = db.Column(db.String(50), nullable=False)
+    email = db.Column(db.String(100), unique=True, nullable=False)
+    phone = db.Column(db.String(50), default='')
+    department = db.Column(db.String(100), default='')
+    position = db.Column(db.String(100), default='')
+    emergency_contact_name = db.Column(db.String(100), default='')
+    emergency_contact_phone = db.Column(db.String(50), default='')
+    professional_skills = db.Column(db.String(255), default='')
+
+class Document(db.Model): #DOCUMENT STORE 
+    __tablename__ = 'documents'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    original_filename = db.Column(db.String(255), nullable=False)
+    stored_filename   = db.Column(db.String(255), nullable=False)  # name used on disk
+    upload_time       = db.Column(db.DateTime, default=datetime.utcnow)
 
 ####################################################
 # ENDPOINTS
@@ -865,6 +903,321 @@ def get_annual_balance():
         "year": year,
         "annual_remaining": balance.annual_remaining
     }), 200
+
+#schedule
+@app.route('/shifts', methods=['POST'])
+@jwt_required()
+def create_shift():
+    """
+    Expects JSON:
+    {
+      "staff_member": "Ryan - Cloud System Engineer",
+      "shift_name": "Morning (07:00 - 13:00)",
+      "date": "15-03-2025",
+      "notes": "Some optional note"
+    }
+    """
+    claims = get_jwt()
+    if claims.get("role") != "admin":
+        return jsonify({"message": "Admins only"}), 403
+    data = request.get_json() or {}
+    required_fields = ["staff_member", "shift_name", "date"]
+    if not all(f in data for f in required_fields):
+        return jsonify({"message": "Missing required fields"}), 400
+    
+    new_shift = Shift(
+        staff_member=data["staff_member"],
+        shift_name=data["shift_name"],
+        date=data["date"],
+        notes=data.get("notes", "")
+    )
+    db.session.add(new_shift)
+    db.session.commit()
+    return jsonify({"message": "Shift created", "shift_id": new_shift.id}), 201
+
+# Get all shifts (GET), with optional filtering by staff_member
+@app.route('/shifts', methods=['GET'])
+def get_shifts():
+    """
+    Optional query param: ?staff=Ryan
+    If provided, returns only shifts for that staff_member (case-insensitive 'contains' search).
+    Otherwise returns all shifts.
+    """
+    staff_filter = request.args.get("staff", type=str)
+    query = Shift.query
+
+    if staff_filter:
+        # case-insensitive substring match
+        query = query.filter(Shift.staff_member.ilike(f"%{staff_filter}%"))
+    
+    shifts = query.all()
+    results = []
+    for s in shifts:
+        results.append({
+            "id": s.id,
+            "staff_member": s.staff_member,
+            "shift_name": s.shift_name,
+            "date": s.date,
+            "notes": s.notes
+        })
+    return jsonify(results), 200
+
+# Get a single shift by ID (GET)
+@app.route('/shifts/<int:shift_id>', methods=['GET'])
+def get_shift_by_id(shift_id):
+    s = Shift.query.get_or_404(shift_id)
+    return jsonify({
+        "id": s.id,
+        "staff_member": s.staff_member,
+        "shift_name": s.shift_name,
+        "date": s.date,
+        "notes": s.notes
+    }), 200
+
+#  Update a shift by ID (PUT)
+@app.route('/shifts/<int:shift_id>', methods=['PUT'])
+@jwt_required()
+def update_shift(shift_id):
+    claims = get_jwt()
+    if claims.get("role") != "admin":
+        return jsonify({"message": "Admins only"}), 403
+    
+    s = Shift.query.get_or_404(shift_id)
+    data = request.get_json() or {}
+    
+    # Update fields if present
+    s.staff_member = data.get("staff_member", s.staff_member)
+    s.shift_name   = data.get("shift_name", s.shift_name)
+    s.date         = data.get("date", s.date)
+    s.notes        = data.get("notes", s.notes)
+
+    db.session.commit()
+    return jsonify({"message": f"Shift {shift_id} updated"}), 200
+
+# Delete a shift by ID (DELETE)
+@app.route('/shifts/<int:shift_id>', methods=['DELETE'])
+@jwt_required()
+def delete_shift(shift_id):
+        
+        
+    claims = get_jwt()
+    if claims.get("role") != "admin":
+        return jsonify({"message": "Admins only"}), 403
+
+    s = Shift.query.get_or_404(shift_id)
+    db.session.delete(s)
+    db.session.commit()
+    return jsonify({"message": f"Shift {shift_id} deleted"}), 200
+
+# personal info
+@app.route('/personal_info', methods=['POST'])
+def create_personal_info():
+    """
+    Expects JSON:
+    {
+      "first_name": "John",
+      "last_name": "Smith",
+      "email": "john.smith@company.com",
+      "phone": "+1 (555) 123-4567",
+      "department": "Engineering",
+      "position": "Senior Developer",
+      "emergency_contact_name": "Jane Smith",
+      "emergency_contact_phone": "+1 (555) 987-6543",
+      "professional_skills": "JavaScript, React, NodeJS, Python, AWS, Docker"
+    }
+    """
+    data = request.get_json() or {}
+    required_fields = ["first_name", "last_name", "email"]
+    if not all(f in data for f in required_fields):
+        return jsonify({"message": "Missing required fields"}), 400
+
+    # Check if email is already used
+    if PersonalInfo.query.filter_by(email=data["email"]).first():
+        return jsonify({"message": "Email already registered"}), 400
+
+    new_record = PersonalInfo(
+        first_name=data["first_name"],
+        last_name=data["last_name"],
+        email=data["email"],
+        phone=data.get("phone", ""),
+        department=data.get("department", ""),
+        position=data.get("position", ""),
+        emergency_contact_name=data.get("emergency_contact_name", ""),
+        emergency_contact_phone=data.get("emergency_contact_phone", ""),
+        professional_skills=data.get("professional_skills", "")
+    )
+    db.session.add(new_record)
+    db.session.commit()
+    return jsonify({"message": "Personal info created", "id": new_record.id}), 201
+
+@app.route('/personal_info', methods=['GET'])
+def get_personal_info():
+    """
+    If ?name=<someName> is provided, searches for records where first_name or last_name
+    contains <someName> (case-insensitive).
+    Otherwise, returns all personal info records.
+    Example:
+      GET /personal_info           -> fetches all
+      GET /personal_info?name=John -> fetches those matching 'John'
+    """
+    name_filter = request.args.get("name", type=str)
+
+    if name_filter:
+        # Filter where first_name or last_name contains the name_filter (case-insensitive)
+        query = PersonalInfo.query.filter(
+            (PersonalInfo.first_name.ilike(f"%{name_filter}%")) |
+            (PersonalInfo.last_name.ilike(f"%{name_filter}%"))
+        )
+    else:
+        # No filter, get all records
+        query = PersonalInfo.query
+
+    records = query.all()
+
+    results = []
+    for r in records:
+        results.append({
+            "id": r.id,
+            "first_name": r.first_name,
+            "last_name": r.last_name,
+            "email": r.email,
+            "phone": r.phone,
+            "department": r.department,
+            "position": r.position,
+            "emergency_contact_name": r.emergency_contact_name,
+            "emergency_contact_phone": r.emergency_contact_phone,
+            "professional_skills": r.professional_skills
+        })
+
+    return jsonify(results), 200
+
+# Update personal info by ID (PUT)
+@app.route('/personal_info/<int:info_id>', methods=['PUT'])
+def update_personal_info(info_id):
+    record = PersonalInfo.query.get_or_404(info_id)
+    data = request.get_json() or {}
+
+    # Update fields if provided
+    record.first_name = data.get("first_name", record.first_name)
+    record.last_name  = data.get("last_name", record.last_name)
+    record.email      = data.get("email", record.email)
+    record.phone      = data.get("phone", record.phone)
+    record.department = data.get("department", record.department)
+    record.position   = data.get("position", record.position)
+    record.emergency_contact_name = data.get("emergency_contact_name", record.emergency_contact_name)
+    record.emergency_contact_phone = data.get("emergency_contact_phone", record.emergency_contact_phone)
+    record.professional_skills = data.get("professional_skills", record.professional_skills)
+
+    db.session.commit()
+    return jsonify({"message": f"Personal info {info_id} updated"}), 200
+
+# Delete personal info by ID (DELETE)
+@app.route('/personal_info/<int:info_id>', methods=['DELETE'])
+def delete_personal_info(info_id):
+    record = PersonalInfo.query.get_or_404(info_id)
+    db.session.delete(record)
+    db.session.commit()
+    return jsonify({"message": f"Personal info {info_id} deleted"}), 200
+
+
+# 1. Upload a Document (POST)
+@app.route('/documents', methods=['POST'])
+def upload_document():
+    """
+    Expects a multipart/form-data request with a file under key "file".
+    Example with cURL:
+      curl -X POST -F file=@/path/to/file.pdf http://localhost:5000/documents
+    """
+    if 'file' not in request.files:
+        return jsonify({"message": "No file part in the request"}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"message": "No selected file"}), 400
+    
+    # Sanitize filename
+    original_filename = secure_filename(file.filename)
+    if not original_filename:
+        return jsonify({"message": "Invalid file name"}), 400
+    
+    # Create a unique stored filename (e.g., add timestamp or a UUID)
+    stored_filename = f"{datetime.utcnow().timestamp()}_{original_filename}"
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], stored_filename)
+    
+    # Save file to disk
+    file.save(file_path)
+
+    # Create a new Document record in the database
+    new_doc = Document(
+        original_filename=original_filename,
+        stored_filename=stored_filename
+    )
+    db.session.add(new_doc)
+    db.session.commit()
+
+    return jsonify({
+        "message": "Document uploaded",
+        "document_id": new_doc.id,
+        "original_filename": original_filename
+    }), 201
+
+# 2. Download a Document (GET)
+@app.route('/documents/download/<int:doc_id>', methods=['GET'])
+def download_document(doc_id):
+    """
+    Returns the file for download.
+    Example: GET /documents/1/download
+    """
+    doc = Document.query.get_or_404(doc_id)
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], doc.stored_filename)
+    if not os.path.exists(file_path):
+        abort(404, description="File not found on disk")
+
+    # Return the file using send_from_directory
+    return send_from_directory(
+        directory=app.config['UPLOAD_FOLDER'],
+        path=doc.stored_filename,
+        as_attachment=True,
+        download_name=doc.original_filename
+    )
+
+# Delete a Document (DELETE)
+@app.route('/documents/<int:doc_id>', methods=['DELETE'])
+def delete_document(doc_id):
+    """
+    Removes the document record from the DB and deletes the file from disk.
+    Example: DELETE /documents/1
+    """
+    doc = Document.query.get_or_404(doc_id)
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], doc.stored_filename)
+
+    # Remove from DB
+    db.session.delete(doc)
+    db.session.commit()
+
+    # Remove file from disk if it exists
+    if os.path.exists(file_path):
+        os.remove(file_path)
+
+    return jsonify({"message": f"Document {doc_id} deleted"}), 200
+
+# (Optional) List all Documents
+@app.route('/documents', methods=['GET'])
+def list_documents():
+    """
+    Returns all documents metadata (ID, original_filename, upload_time).
+    """
+    docs = Document.query.order_by(Document.upload_time.desc()).all()
+    results = []
+    for d in docs:
+        results.append({
+            "id": d.id,
+            "original_filename": d.original_filename,
+            "upload_time": d.upload_time.isoformat()
+        })
+    return jsonify(results), 200
+
+
 ####################################################
 # MAIN
 ####################################################
