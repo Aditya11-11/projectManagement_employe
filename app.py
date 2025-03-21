@@ -23,6 +23,8 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 # Set a secret key for JWT (change this in production)
 app.config['JWT_SECRET_KEY'] = 'super-secret-key'
 
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(days=1)
+
 
 # Define and set the upload folder
 UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
