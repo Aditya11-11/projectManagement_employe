@@ -141,6 +141,19 @@ class Document(db.Model):
     employee_id = db.Column(db.Integer, db.ForeignKey('personal_info.id'), nullable=False)
     employee = db.relationship('PersonalInfo', backref='documents')
 
+
+class Project(db.Model):
+    __tablename__ = 'projects'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    project_name = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.String(500), default='')
+    project_lead = db.Column(db.String(100), default='')
+    start_date = db.Column(db.String(10), default='')  # "dd-mm-yyyy"
+    due_date = db.Column(db.String(10), default='')    # "dd-mm-yyyy"
+    team_members = db.Column(db.String(255), default='')  # could store JSON or comma-separated
+    project_status = db.Column(db.String(50), default='Not Started')
+
 ####################################################
 # ENDPOINTS
 ####################################################
@@ -1212,7 +1225,7 @@ def upload_document():
         "original_filename": original_filename
     }), 201
 
-# 2. Download a Document (GET)
+# Download a Document (GET)
 @app.route('/documents/download/<int:doc_id>', methods=['GET'])
 def download_document(doc_id):
     """
@@ -1231,7 +1244,7 @@ def download_document(doc_id):
         download_name=doc.original_filename
     )
 
-# 3. Delete a Document (DELETE)
+# Delete a Document (DELETE)
 @app.route('/documents/<int:doc_id>', methods=['DELETE'])
 def delete_document(doc_id):
     """
@@ -1251,7 +1264,7 @@ def delete_document(doc_id):
 
     return jsonify({"message": f"Document {doc_id} deleted"}), 200
 
-# 4. List all Documents (GET)
+# List all Documents (GET)
 @app.route('/documents', methods=['GET'])
 def list_documents():
     """
@@ -1275,6 +1288,106 @@ def list_documents():
             "position": emp.position
         })
     return jsonify(results), 200
+
+# PROJECT # 
+@app.route('/projects', methods=['POST'])
+def create_project():
+    """
+    Expects JSON:
+    {
+      "project_name": "Project color coding and Geo Fencing",
+      "description": "Some description of the project",
+      "project_lead": "John Smith",
+      "start_date": "01-04-2025",
+      "due_date": "15-04-2025",
+      "team_members": "John Smith, Jane Doe", 
+      "project_status": "Not Started"
+    }
+    """
+    data = request.get_json() or {}
+    required_fields = ["project_name"]
+    if not all(f in data for f in required_fields):
+        return jsonify({"message": "Missing required fields"}), 400
+
+    new_project = Project(
+        project_name=data["project_name"],
+        description=data.get("description", ""),
+        project_lead=data.get("project_lead", ""),
+        start_date=data.get("start_date", ""),
+        due_date=data.get("due_date", ""),
+        team_members=data.get("team_members", ""),
+        project_status=data.get("project_status", "Not Started")
+    )
+    db.session.add(new_project)
+    db.session.commit()
+    return jsonify({"message": "Project created", "project_id": new_project.id}), 201
+
+# Get all projects (GET)
+@app.route('/projects', methods=['GET'])
+def get_all_projects():
+    """
+    Returns a list of all projects.
+    """
+    records = Project.query.all()
+    results = []
+    for r in records:
+        results.append({
+            "id": r.id,
+            "project_name": r.project_name,
+            "description": r.description,
+            "project_lead": r.project_lead,
+            "start_date": r.start_date,
+            "due_date": r.due_date,
+            "team_members": r.team_members,
+            "project_status": r.project_status
+        })
+    return jsonify(results), 200
+
+# Get project by ID (GET)
+@app.route('/projects/<int:project_id>', methods=['GET'])
+def get_project_by_id(project_id):
+    """
+    Retrieve a single project by its ID.
+    """
+    project = Project.query.get_or_404(project_id)
+    return jsonify({
+        "id": project.id,
+        "project_name": project.project_name,
+        "description": project.description,
+        "project_lead": project.project_lead,
+        "start_date": project.start_date,
+        "due_date": project.due_date,
+        "team_members": project.team_members,
+        "project_status": project.project_status
+    }), 200
+
+# Delete a project by ID (DELETE)
+@app.route('/projects/<int:project_id>', methods=['DELETE'])
+def delete_project(project_id):
+    project = Project.query.get_or_404(project_id)
+    db.session.delete(project)
+    db.session.commit()
+    return jsonify({"message": f"Project {project_id} deleted"}), 200
+
+# Update project status by ID (PUT)
+@app.route('/projects/<int:project_id>/status', methods=['PUT'])
+def update_project_status(project_id):
+    """
+    Expects JSON:
+    {
+      "project_status": "In Progress"
+    }
+    """
+    project = Project.query.get_or_404(project_id)
+    data = request.get_json() or {}
+    new_status = data.get("project_status")
+    if not new_status:
+        return jsonify({"message": "Missing project_status"}), 400
+
+    project.project_status = new_status
+    db.session.commit()
+    return jsonify({"message": f"Project {project_id} status updated to {new_status}."}), 200
+
 
 
 
