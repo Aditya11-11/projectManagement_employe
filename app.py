@@ -48,6 +48,7 @@ class Employee(db.Model):  # employeeData
     is_active  = db.Column(db.Boolean, default=True)
     two_factor_enabled = db.Column(db.Boolean, default=False)
     role = db.Column(db.String(50), default='Employee')
+    phone= db.Column(db.Integer,nullable=False)
 
 class Admin(db.Model):  # admin data 
     __tablename__ = 'admins'
@@ -156,8 +157,9 @@ def register():
     last_name = data.get("last_name")
     email = data.get("email")
     password = data.get("password")
+    phone=data.get('phone')
     
-    if not all([first_name, last_name, email, password]):
+    if not all([first_name, last_name, email, password,phone]):
         return jsonify({"message": "Missing required fields"}), 400
 
     if Employee.query.filter_by(email=email).first():
@@ -168,7 +170,8 @@ def register():
         first_name=first_name,
         last_name=last_name,
         email=email,
-        password=hashed_password
+        password=hashed_password,
+        phone=phone
     )
     db.session.add(new_employee)
     db.session.commit()
@@ -236,7 +239,8 @@ def get_employees():
             "email": emp.email,
             "department": emp.department,
             "is_active": emp.is_active,
-            "role": emp.role
+            "role": emp.role,
+            "phone" : emp.phone
         })
     return jsonify(result), 200
 
@@ -251,7 +255,8 @@ def get_employee(employee_id):
         "email": emp.email,
         "department": emp.department,
         "is_active": emp.is_active,
-        "role": emp.role
+        "role": emp.role,
+        "phone": emp.phone
     }
     return jsonify(result), 200
 
