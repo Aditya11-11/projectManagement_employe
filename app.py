@@ -93,6 +93,8 @@ class LeaveRequest(db.Model): #leverequest table
     days = db.Column(db.Float, default=1.0)
     status = db.Column(db.String(20), default='Pending')     # "Pending", "Approved", "Rejected"
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    reason = db.Column(db.String(255), default='', nullable=True)
+
 
 class EmployeeLeaveBalance(db.Model): #EMPLOYE LEAVE BALANCE DATA 
     """
@@ -114,9 +116,8 @@ class Shift(db.Model): #SHIFT DATA
     notes        = db.Column(db.String(200), default='') 
 
 
-class PersonalInfo(db.Model): #PERSONAL INFOMARTION DATA
+class PersonalInfo(db.Model):
     __tablename__ = 'personal_info'
-    
     id = db.Column(db.Integer, primary_key=True)
     first_name = db.Column(db.String(50), nullable=False)
     last_name  = db.Column(db.String(50), nullable=False)
@@ -128,13 +129,14 @@ class PersonalInfo(db.Model): #PERSONAL INFOMARTION DATA
     emergency_contact_phone = db.Column(db.String(50), default='')
     professional_skills = db.Column(db.String(255), default='')
 
-class Document(db.Model): #DOCUMENT STORE 
+class Document(db.Model):
     __tablename__ = 'documents'
-    
     id = db.Column(db.Integer, primary_key=True)
     original_filename = db.Column(db.String(255), nullable=False)
-    stored_filename   = db.Column(db.String(255), nullable=False)  # name used on disk
+    stored_filename   = db.Column(db.String(255), nullable=False)  # Name used on disk
     upload_time       = db.Column(db.DateTime, default=datetime.utcnow)
+    employee_id = db.Column(db.Integer, db.ForeignKey('personal_info.id'), nullable=False)
+    employee = db.relationship('PersonalInfo', backref='documents')
 
 ####################################################
 # ENDPOINTS
@@ -471,6 +473,8 @@ def get_tasks():
     """
     title_filter = request.args.get('title')      # e.g. ?title=Fix
     priority_filter = request.args.get('priority')  # e.g. ?priority=High
+    id_filter=request.args.get('id')
+    assingn_filter=request.args.get("assigned_to")
 
     query = Task.query
     
@@ -482,6 +486,12 @@ def get_tasks():
     if priority_filter:
         query = query.filter_by(priority=priority_filter)
 
+    if id_filter:
+        query = query.filter_by(id=id_filter)
+
+    if assingn_filter:
+        query=query.filter_by(assigned_to=assingn_filter)
+        
     tasks = query.all()
     results = []
     for t in tasks:
@@ -700,14 +710,16 @@ def apply_new_leave():
     {
       "employee_id": 123,
       "leave_type": "Annual",
-      "start_date": "2024-02-15",
-      "end_date": "2024-02-18",
-      "days": 4
+      "start_date": "YYYY-MM-DD",
+      "end_date": "YYYY-MM-DD",
+      "days": 4,
+      "reason": "Explanation of the leave"  (optional)
     }
     """
     claims = get_jwt()
     if claims.get("role") != "employee":
         return jsonify({"message": "Employees only"}), 403
+
     data = request.get_json() or {}
     required = ["employee_id", "start_date", "end_date", "days"]
     if not all(field in data for field in required):
@@ -719,10 +731,12 @@ def apply_new_leave():
         start_date=data["start_date"],
         end_date=data["end_date"],
         days=data["days"],
-        status="Pending"
+        status="Pending",
+        reason=data.get("reason", "")  # store the reason if provided
     )
     db.session.add(new_req)
     db.session.commit()
+
     return jsonify({"message": "Leave request created", "request_id": new_req.id}), 201
 
 # Get Leave Requests (GET)
@@ -735,9 +749,15 @@ def get_leave_requests():
     Otherwise returns all requests.
     """
     employee_id = request.args.get("employee_id", type=int)
+    request_id = request.args.get("id", type=int)
     query = LeaveRequest.query
+
     if employee_id:
         query = query.filter_by(employee_id=employee_id)
+
+    if request_id:
+        query = query.filter_by(id=request_id)
+
     requests = query.order_by(LeaveRequest.created_at.desc()).all()
 
     data = []
@@ -750,7 +770,9 @@ def get_leave_requests():
             "end_date": r.end_date,
             "days": r.days,
             "status": r.status,
-            "created_at": r.created_at.isoformat()
+            "created_at": r.created_at.isoformat(),
+            "reason": r.reason  # include the reason in the response
+
         })
     return jsonify(data), 200
 
@@ -831,7 +853,9 @@ def get_leave_request_detail(req_id):
         "end_date": req.end_date,
         "days": req.days,
         "status": req.status,
-        "created_at": req.created_at.isoformat()
+        "created_at": req.created_at.isoformat(),
+        "reason": req.reason  # include the reason in the response
+
     }), 200
 
 # Get Total Leave of an Employee in a Given Month (GET)
@@ -1061,6 +1085,9 @@ def get_personal_info():
       GET /personal_info?name=John -> fetches those matching 'John'
     """
     name_filter = request.args.get("name", type=str)
+    id_filter=request.args.get('id')
+
+    query = PersonalInfo.query
 
     if name_filter:
         # Filter where first_name or last_name contains the name_filter (case-insensitive)
@@ -1068,9 +1095,9 @@ def get_personal_info():
             (PersonalInfo.first_name.ilike(f"%{name_filter}%")) |
             (PersonalInfo.last_name.ilike(f"%{name_filter}%"))
         )
-    else:
-        # No filter, get all records
-        query = PersonalInfo.query
+    if id_filter:
+        query = query.filter_by(id=id_filter)
+
 
     records = query.all()
 
@@ -1120,13 +1147,15 @@ def delete_personal_info(info_id):
     return jsonify({"message": f"Personal info {info_id} deleted"}), 200
 
 
-# 1. Upload a Document (POST)
 @app.route('/documents', methods=['POST'])
 def upload_document():
     """
-    Expects a multipart/form-data request with a file under key "file".
+    Expects a multipart/form-data request with:
+      - A file under key "file"
+      - An "employee_id" field to associate the document with an employee.
+    
     Example with cURL:
-      curl -X POST -F file=@/path/to/file.pdf http://localhost:5000/documents
+      curl -X POST -F file=@/path/to/file.pdf -F employee_id=1 http://localhost:5000/documents
     """
     if 'file' not in request.files:
         return jsonify({"message": "No file part in the request"}), 400
@@ -1134,23 +1163,38 @@ def upload_document():
     file = request.files['file']
     if file.filename == '':
         return jsonify({"message": "No selected file"}), 400
-    
-    # Sanitize filename
+
+    # Get employee_id from form data.
+    employee_id = request.form.get("employee_id")
+    if not employee_id:
+        return jsonify({"message": "Missing employee_id in the form data"}), 400
+    try:
+        employee_id = int(employee_id)
+    except ValueError:
+        return jsonify({"message": "Invalid employee_id"}), 400
+
+    # Verify that the employee exists.
+    employee = PersonalInfo.query.get(employee_id)
+    if not employee:
+        return jsonify({"message": "Employee not found"}), 404
+
+    # Sanitize the filename.
     original_filename = secure_filename(file.filename)
     if not original_filename:
         return jsonify({"message": "Invalid file name"}), 400
-    
-    # Create a unique stored filename (e.g., add timestamp or a UUID)
+
+    # Create a unique stored filename.
     stored_filename = f"{datetime.utcnow().timestamp()}_{original_filename}"
     file_path = os.path.join(app.config['UPLOAD_FOLDER'], stored_filename)
     
-    # Save file to disk
+    # Save the file to disk.
     file.save(file_path)
 
-    # Create a new Document record in the database
+    # Create a new Document record in the database.
     new_doc = Document(
         original_filename=original_filename,
-        stored_filename=stored_filename
+        stored_filename=stored_filename,
+        employee_id=employee_id
     )
     db.session.add(new_doc)
     db.session.commit()
@@ -1166,14 +1210,13 @@ def upload_document():
 def download_document(doc_id):
     """
     Returns the file for download.
-    Example: GET /documents/1/download
+    Example: GET /documents/download/1
     """
     doc = Document.query.get_or_404(doc_id)
     file_path = os.path.join(app.config['UPLOAD_FOLDER'], doc.stored_filename)
     if not os.path.exists(file_path):
         abort(404, description="File not found on disk")
 
-    # Return the file using send_from_directory
     return send_from_directory(
         directory=app.config['UPLOAD_FOLDER'],
         path=doc.stored_filename,
@@ -1181,7 +1224,7 @@ def download_document(doc_id):
         download_name=doc.original_filename
     )
 
-# Delete a Document (DELETE)
+# 3. Delete a Document (DELETE)
 @app.route('/documents/<int:doc_id>', methods=['DELETE'])
 def delete_document(doc_id):
     """
@@ -1191,31 +1234,41 @@ def delete_document(doc_id):
     doc = Document.query.get_or_404(doc_id)
     file_path = os.path.join(app.config['UPLOAD_FOLDER'], doc.stored_filename)
 
-    # Remove from DB
+    # Remove document record from the database.
     db.session.delete(doc)
     db.session.commit()
 
-    # Remove file from disk if it exists
+    # Remove file from disk if it exists.
     if os.path.exists(file_path):
         os.remove(file_path)
 
     return jsonify({"message": f"Document {doc_id} deleted"}), 200
 
-# (Optional) List all Documents
+# 4. List all Documents (GET)
 @app.route('/documents', methods=['GET'])
 def list_documents():
     """
-    Returns all documents metadata (ID, original_filename, upload_time).
+    Returns all documents metadata along with associated employee details.
+    Employee details include: name, position, and department.
     """
-    docs = Document.query.order_by(Document.upload_time.desc()).all()
+    # Join Document with PersonalInfo.
+    docs = db.session.query(Document, PersonalInfo)\
+        .join(PersonalInfo, Document.employee_id == PersonalInfo.id)\
+        .order_by(Document.upload_time.desc()).all()
+
     results = []
-    for d in docs:
+    for doc, emp in docs:
         results.append({
-            "id": d.id,
-            "original_filename": d.original_filename,
-            "upload_time": d.upload_time.isoformat()
+            "document_id": doc.id,
+            "original_filename": doc.original_filename,
+            "upload_time": doc.upload_time.isoformat(),
+            "employee_id": emp.id,
+            "employee_name": f"{emp.first_name} {emp.last_name}",
+            "department": emp.department,
+            "position": emp.position
         })
     return jsonify(results), 200
+
 
 
 ####################################################
