@@ -73,7 +73,10 @@ class Task(db.Model): # Task Data
     description = db.Column(db.String(500), default='')
     due_date = db.Column(db.String(10), default='')  # "dd-mm-yyyy"
     priority = db.Column(db.String(10), default='Medium')  # "Low", "Medium", or "High"
+    project=db.Column(db.String(100),nullable=False)
     assigned_to = db.Column(db.String(100), default='')
+    status = db.Column(db.String(20), default="Pending")  # New field: Pending, In Progress, Completed
+
 
 class PolicyDocument(db.Model): # Policy Document tab
     __tablename__ = 'policy_documents'
@@ -579,13 +582,15 @@ def add_task():
     due_date = data.get("due_date", "")
     priority = data.get("priority", "Medium")
     assigned_to = data.get("assigned_to", "")
+    project=data.get("project")
 
     new_task = Task(
         title=title,
         description=description,
         due_date=due_date,
         priority=priority,
-        assigned_to=assigned_to
+        assigned_to=assigned_to,
+        project=project
     )
     db.session.add(new_task)
     db.session.commit()
@@ -604,6 +609,7 @@ def get_tasks():
     priority_filter = request.args.get('priority')  # e.g. ?priority=High
     id_filter=request.args.get('id')
     assingn_filter=request.args.get("assigned_to")
+    project_filter=request.args.get("project")
 
     query = Task.query
     
@@ -620,6 +626,9 @@ def get_tasks():
 
     if assingn_filter:
         query=query.filter_by(assigned_to=assingn_filter)
+
+    if project_filter:
+        query=query.filter_by(project=project_filter)
         
     tasks = query.all()
     results = []
@@ -630,9 +639,53 @@ def get_tasks():
             "description": t.description,
             "due_date": t.due_date,
             "priority": t.priority,
-            "assigned_to": t.assigned_to
+            "assigned_to": t.assigned_to,
+            "project":t.project,
+            "status" :t.status
         })
     return jsonify(results), 200
+
+#update
+@app.route('/tasks/<int:task_id>', methods=['PUT'])
+# @jwt_required()  # Uncomment this if you need authentication
+def update_task(task_id):
+    """
+    Update an existing task by ID. Only the fields provided in the request will be updated.
+    Expects JSON payload with any of the following fields:
+    {
+        "title": "New task title",
+        "description": "Updated description",
+        "due_date": "dd-mm-yyyy",
+        "priority": "High",
+        "assigned_to": "John Doe",
+        "project": "Project Name"
+    }
+    """
+    task = Task.query.get_or_404(task_id)
+    data = request.get_json() or {}
+
+    if "title" in data:
+        task.title = data["title"]
+    if "description" in data:
+        task.description = data["description"]
+    if "due_date" in data:
+        task.due_date = data["due_date"]
+    if "priority" in data:
+        task.priority = data["priority"]
+    if "assigned_to" in data:
+        task.assigned_to = data["assigned_to"]
+    if "project" in data:
+        task.project = data["project"]
+
+    if "status" in data:
+    # Optionally validate new status before updating
+        new_status = data["status"]
+    if new_status not in ["Pending", "In Progress", "Completed"]:
+        return jsonify({"message": "Invalid status value"}), 400
+    task.status = new_status
+
+    db.session.commit()
+    return jsonify({"message": "Task updated", "task_id": task.id}), 200
 
 #  Delete Task by title (DELETE) 
 @app.route('/tasks/<string:task_title>', methods=['DELETE'])
