@@ -5,6 +5,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from werkzeug.security import generate_password_hash, check_password_hash 
 from werkzeug.utils import secure_filename
+import json
 
 # JWT imports
 from flask_jwt_extended import (
@@ -168,6 +169,29 @@ class ChatMessage(db.Model):
     receiver_id = db.Column(db.Integer, nullable=False)
     content = db.Column(db.String(1000), nullable=False)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+class Communication(db.Model):
+    __tablename__ = 'communications'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    subject = db.Column(db.String(200), nullable=False)
+    channel = db.Column(db.String(100), default='')
+    priority = db.Column(db.String(20), default='Medium')   # e.g. High, Medium, Low
+    project = db.Column(db.String(100), default='')
+    date = db.Column(db.String(20), default='')
+    participants = db.Column(db.Text, default='[]')         # store as JSON string
+
+class CommunicationMessage(db.Model):
+    __tablename__ = 'communication_messages'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    communication_id = db.Column(db.Integer, db.ForeignKey('communications.id'), nullable=False)
+    sender_id = db.Column(db.Integer, nullable=False)  # or store a string if needed
+    content = db.Column(db.String(1000), nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # Relationship to access parent Communication if needed
+    communication = db.relationship('Communication', backref='messages')
 
 ####################################################
 # ENDPOINTS
@@ -1321,6 +1345,7 @@ def upload_document():
     # Save the file to disk.
     file.save(file_path)
 
+
     # Create a new Document record in the database.
     new_doc = Document(
         original_filename=original_filename,
@@ -1632,6 +1657,181 @@ def delete_chat_messages():
 
     return jsonify({"message": f"Deleted all messages between user {user1} and user {user2}"}), 200
 
+
+
+
+@app.route('/communications', methods=['POST'])
+def create_communication():
+    """
+    Expects JSON:
+    {
+      "subject": "Team Meeting",
+      "channel": "General",
+      "priority": "High",
+      "project": "Website Redesign",
+      "date": "Jan 15, 2023",
+      "participants": ["Sarah Johnson", "Mike Peters"]
+    }
+    """
+    data = request.get_json() or {}
+    if "subject" not in data:
+        return jsonify({"message": "subject is required"}), 400
+
+    # Convert participants to JSON string if it's a list
+    participants_data = data.get("participants", [])
+    if isinstance(participants_data, list):
+        participants_str = json.dumps(participants_data)
+    else:
+        participants_str = str(participants_data)
+
+    new_comm = Communication(
+        subject=data["subject"],
+        channel=data.get("channel", ""),
+        priority=data.get("priority", "Medium"),
+        project=data.get("project", ""),
+        date=data.get("date", ""),
+        participants=participants_str
+    )
+    db.session.add(new_comm)
+    db.session.commit()
+    return jsonify({"message": "Communication created", "id": new_comm.id}), 201
+
+@app.route('/communications', methods=['GET'])
+def get_all_communications():
+    comms = Communication.query.all()
+    results = []
+    for c in comms:
+        try:
+            part_list = json.loads(c.participants)
+        except:
+            part_list = []
+        results.append({
+            "id": c.id,
+            "subject": c.subject,
+            "channel": c.channel,
+            "priority": c.priority,
+            "project": c.project,
+            "date": c.date,
+            "participants": part_list
+        })
+    return jsonify(results), 200
+
+@app.route('/communications/<int:comm_id>', methods=['GET'])
+def get_communication_by_id(comm_id):
+    comm = Communication.query.get_or_404(comm_id)
+    try:
+        part_list = json.loads(comm.participants)
+    except:
+        part_list = []
+    return jsonify({
+        "id": comm.id,
+        "subject": comm.subject,
+        "channel": comm.channel,
+        "priority": comm.priority,
+        "project": comm.project,
+        "date": comm.date,
+        "participants": part_list
+    }), 200
+
+@app.route('/communications/<int:comm_id>', methods=['PUT'])
+def update_communication(comm_id):
+    comm = Communication.query.get_or_404(comm_id)
+    data = request.get_json() or {}
+
+    comm.subject = data.get("subject", comm.subject)
+    comm.channel = data.get("channel", comm.channel)
+    comm.priority = data.get("priority", comm.priority)
+    comm.project = data.get("project", comm.project)
+    comm.date = data.get("date", comm.date)
+
+    if "participants" in data:
+        p_data = data["participants"]
+        if isinstance(p_data, list):
+            comm.participants = json.dumps(p_data)
+        else:
+            comm.participants = str(p_data)
+
+    db.session.commit()
+    return jsonify({"message": f"Communication {comm_id} updated"}), 200
+
+@app.route('/communications/<int:comm_id>', methods=['DELETE'])
+def delete_communication(comm_id):
+    comm = Communication.query.get_or_404(comm_id)
+    db.session.delete(comm)
+    db.session.commit()
+    return jsonify({"message": f"Communication {comm_id} deleted"}), 200
+
+# -------------------------------------------------------
+# COMMUNICATION MESSAGES (Chats) ENDPOINTS
+# -------------------------------------------------------
+# 1. Create a message in a communication
+@app.route('/communications/<int:comm_id>/messages', methods=['POST'])
+def create_communication_message(comm_id):
+    """
+    Expects JSON:
+    {
+      "sender_id": 101,
+      "content": "Hello team, any updates?"
+    }
+    """
+    data = request.get_json() or {}
+    if "sender_id" not in data or "content" not in data:
+        return jsonify({"message": "sender_id and content are required"}), 400
+
+    # Ensure the communication exists
+    comm = Communication.query.get_or_404(comm_id)
+
+    new_msg = CommunicationMessage(
+        communication_id=comm.id,
+        sender_id=data["sender_id"],
+        content=data["content"]
+    )
+    db.session.add(new_msg)
+    db.session.commit()
+    return jsonify({
+        "message": "Message created",
+        "msg_id": new_msg.id,
+        "timestamp": new_msg.timestamp.isoformat()
+    }), 201
+
+# 2. Get all messages for a communication
+@app.route('/communications/<int:comm_id>/messages', methods=['GET'])
+def get_communication_messages(comm_id):
+    """
+    Returns all messages for the given communication_id, sorted by timestamp ascending.
+    """
+    # Ensure the communication exists
+    comm = Communication.query.get_or_404(comm_id)
+
+    msgs = CommunicationMessage.query.filter_by(communication_id=comm_id).order_by(CommunicationMessage.timestamp.asc()).all()
+    results = []
+    for m in msgs:
+        results.append({
+            "id": m.id,
+            "sender_id": m.sender_id,
+            "content": m.content,
+            "timestamp": m.timestamp.isoformat()
+        })
+    return jsonify(results), 200
+
+# 3. Delete all messages for a communication
+@app.route('/communications/<int:comm_id>/messages', methods=['DELETE'])
+def delete_communication_messages(comm_id):
+    """
+    Deletes all messages under a given communication.
+    """
+    # Ensure the communication exists
+    comm = Communication.query.get_or_404(comm_id)
+
+    msgs = CommunicationMessage.query.filter_by(communication_id=comm_id).all()
+    if not msgs:
+        return jsonify({"message": "No messages found for this communication"}), 404
+
+    for m in msgs:
+        db.session.delete(m)
+    db.session.commit()
+
+    return jsonify({"message": f"Deleted all messages for communication {comm_id}"}), 200
 
 
 
