@@ -51,6 +51,11 @@ class Employee(db.Model):  # employeeData
     two_factor_enabled = db.Column(db.Boolean, default=False)
     role = db.Column(db.String(50), default='Employee')
     phone= db.Column(db.Integer,nullable=False)
+    department = db.Column(db.String(100), default='')
+    position = db.Column(db.String(100), default='')
+    emergency_contact_name = db.Column(db.String(100), default='')
+    emergency_contact_phone = db.Column(db.String(50), default='')
+    professional_skills = db.Column(db.String(255), default='')
 
 class Admin(db.Model):  # admin data 
     __tablename__ = 'admins'
@@ -119,18 +124,18 @@ class Shift(db.Model): #SHIFT DATA
     notes        = db.Column(db.String(200), default='') 
 
 
-class PersonalInfo(db.Model):
-    __tablename__ = 'personal_info'
-    id = db.Column(db.Integer, primary_key=True)
-    first_name = db.Column(db.String(50), nullable=False)
-    last_name  = db.Column(db.String(50), nullable=False)
-    email = db.Column(db.String(100), unique=True, nullable=False)
-    phone = db.Column(db.String(50), default='')
-    department = db.Column(db.String(100), default='')
-    position = db.Column(db.String(100), default='')
-    emergency_contact_name = db.Column(db.String(100), default='')
-    emergency_contact_phone = db.Column(db.String(50), default='')
-    professional_skills = db.Column(db.String(255), default='')
+# class PersonalInfo(db.Model):
+#     __tablename__ = 'personal_info'
+#     id = db.Column(db.Integer, primary_key=True)
+#     first_name = db.Column(db.String(50), nullable=False)
+#     last_name  = db.Column(db.String(50), nullable=False)
+#     email = db.Column(db.String(100), unique=True, nullable=False)
+#     phone = db.Column(db.String(50), default='')
+#     department = db.Column(db.String(100), default='')
+#     position = db.Column(db.String(100), default='')
+#     emergency_contact_name = db.Column(db.String(100), default='')
+#     emergency_contact_phone = db.Column(db.String(50), default='')
+#     professional_skills = db.Column(db.String(255), default='')
 
 class Document(db.Model):
     __tablename__ = 'documents'
@@ -138,8 +143,8 @@ class Document(db.Model):
     original_filename = db.Column(db.String(255), nullable=False)
     stored_filename   = db.Column(db.String(255), nullable=False)  # Name used on disk
     upload_time       = db.Column(db.DateTime, default=datetime.utcnow)
-    employee_id = db.Column(db.Integer, db.ForeignKey('personal_info.id'), nullable=False)
-    employee = db.relationship('PersonalInfo', backref='documents')
+    employee_id = db.Column(db.Integer, db.ForeignKey('employees.id'), nullable=False)
+    employee = db.relationship('Employee', backref='documents')
 
 
 class Project(db.Model):
@@ -235,6 +240,9 @@ def unified_login():
             "message": "Admin login successful",
             "access_token": access_token,
             "user_id": admin.id,
+            "first_name" : admin.first_name,
+            "last_name":admin.last_name,
+            "email":admin.email,
             "role": "admin"
         }), 200
 
@@ -246,6 +254,9 @@ def unified_login():
             "message": "Employee login successful",
             "access_token": access_token,
             "user_id": employee.id,
+            "first_name": employee.first_name,
+            "last_name": employee.last_name,
+            "email": employee.email,
             "role": "employee"
         }), 200
 
@@ -265,7 +276,11 @@ def get_employees():
             "department": emp.department,
             "is_active": emp.is_active,
             "role": emp.role,
-            "phone" : emp.phone
+            "phone": emp.phone,
+            "position": emp.position,
+            "emergency_contact_name": emp.emergency_contact_name,
+            "emergency_contact_phone": emp.emergency_contact_phone,
+            "professional_skills": emp.professional_skills
         })
     return jsonify(result), 200
 
@@ -274,14 +289,18 @@ def get_employees():
 def get_employee(employee_id):
     emp = Employee.query.get_or_404(employee_id)
     result = {
-        "id": emp.id,
+       "id": emp.id,
         "first_name": emp.first_name,
         "last_name": emp.last_name,
         "email": emp.email,
         "department": emp.department,
         "is_active": emp.is_active,
         "role": emp.role,
-        "phone": emp.phone
+        "phone": emp.phone,
+        "position": emp.position,
+        "emergency_contact_name": emp.emergency_contact_name,
+        "emergency_contact_phone": emp.emergency_contact_phone,
+        "professional_skills": emp.professional_skills
     }
     return jsonify(result), 200
 
@@ -295,21 +314,69 @@ def delete_employee(employee_id):
     return jsonify({"message": "Employee deleted"}), 200
 
 # Update employee email (Protected)
-@app.route('/employees/<int:employee_id>/update_email', methods=['PUT'])
-# @jwt_required()
-def update_email(employee_id):
+@app.route('/employees/<int:employee_id>', methods=['PUT'])
+# @jwt_required()  # Uncomment if you want to protect this endpoint with JWT
+def update_employee(employee_id):
     emp = Employee.query.get_or_404(employee_id)
-    data = request.get_json()
-    new_email = data.get("email")
-    if not new_email:
-        return jsonify({"message": "New email is required"}), 400
+    data = request.get_json() or {}
 
-    if Employee.query.filter_by(email=new_email).first():
-        return jsonify({"message": "Email already in use"}), 400
-
-    emp.email = new_email
+    # Update first name if provided
+    if "first_name" in data:
+        emp.first_name = data["first_name"]
+    
+    # Update last name if provided
+    if "last_name" in data:
+        emp.last_name = data["last_name"]
+    
+    # Update email if provided (check for uniqueness if it's changed)
+    if "email" in data:
+        new_email = data["email"]
+        if new_email != emp.email and Employee.query.filter_by(email=new_email).first():
+            return jsonify({"message": "Email already in use"}), 400
+        emp.email = new_email
+    
+    # Update password if provided (hash it)
+    if "password" in data:
+        emp.password = generate_password_hash(data["password"])
+    
+    # Update department if provided
+    if "department" in data:
+        emp.department = data["department"]
+    
+    # Update is_active if provided
+    if "is_active" in data:
+        emp.is_active = data["is_active"]
+    
+    # Update two_factor_enabled if provided
+    if "two_factor_enabled" in data:
+        emp.two_factor_enabled = data["two_factor_enabled"]
+    
+    # Update role if provided
+    if "role" in data:
+        emp.role = data["role"]
+    
+    # Update phone if provided
+    if "phone" in data:
+        emp.phone = data["phone"]
+    
+    # Update position if provided
+    if "position" in data:
+        emp.position = data["position"]
+    
+    # Update emergency contact name if provided
+    if "emergency_contact_name" in data:
+        emp.emergency_contact_name = data["emergency_contact_name"]
+    
+    # Update emergency contact phone if provided
+    if "emergency_contact_phone" in data:
+        emp.emergency_contact_phone = data["emergency_contact_phone"]
+    
+    # Update professional skills if provided
+    if "professional_skills" in data:
+        emp.professional_skills = data["professional_skills"]
+    
     db.session.commit()
-    return jsonify({"message": "Email updated successfully"}), 200
+    return jsonify({"message": "Employee updated successfully"}), 200
 
 # Change employee password (Protected)
 @app.route('/employees/<int:employee_id>/change_password', methods=['PUT'])
@@ -1076,134 +1143,134 @@ def delete_shift(shift_id):
     return jsonify({"message": f"Shift {shift_id} deleted"}), 200
 
 # personal info
-@app.route('/personal_info', methods=['POST'])
-# @jwt_required()
-def create_personal_info():
-    """
-    Expects JSON:
-    {
-      "first_name": "John",
-      "last_name": "Smith",
-      "email": "john.smith@company.com",
-      "phone": "+1 (555) 123-4567",
-      "department": "Engineering",
-      "position": "Senior Developer",
-      "emergency_contact_name": "Jane Smith",
-      "emergency_contact_phone": "+1 (555) 987-6543",
-      "professional_skills": "JavaScript, React, NodeJS, Python, AWS, Docker"
-    }
-    """
-    # claims = get_jwt()
-    # if claims.get("role") != "employee":
-    #     return jsonify({"message": "Employees only"}), 403
+# @app.route('/personal_info', methods=['POST'])
+# # @jwt_required()
+# def create_personal_info():
+#     """
+#     Expects JSON:
+#     {
+#       "first_name": "John",
+#       "last_name": "Smith",
+#       "email": "john.smith@company.com",
+#       "phone": "+1 (555) 123-4567",
+#       "department": "Engineering",
+#       "position": "Senior Developer",
+#       "emergency_contact_name": "Jane Smith",
+#       "emergency_contact_phone": "+1 (555) 987-6543",
+#       "professional_skills": "JavaScript, React, NodeJS, Python, AWS, Docker"
+#     }
+#     """
+#     # claims = get_jwt()
+#     # if claims.get("role") != "employee":
+#     #     return jsonify({"message": "Employees only"}), 403
 
-    data = request.get_json() or {}
-    required_fields = ["first_name", "last_name", "email"]
-    if not all(f in data for f in required_fields):
-        return jsonify({"message": "Missing required fields"}), 400
+#     data = request.get_json() or {}
+#     required_fields = ["first_name", "last_name", "email"]
+#     if not all(f in data for f in required_fields):
+#         return jsonify({"message": "Missing required fields"}), 400
 
-    # Check if email is already used
-    if PersonalInfo.query.filter_by(email=data["email"]).first():
-        return jsonify({"message": "Email already registered"}), 400
+#     # Check if email is already used
+#     if PersonalInfo.query.filter_by(email=data["email"]).first():
+#         return jsonify({"message": "Email already registered"}), 400
 
-    new_record = PersonalInfo(
-        first_name=data["first_name"],
-        last_name=data["last_name"],
-        email=data["email"],
-        phone=data.get("phone", ""),
-        department=data.get("department", ""),
-        position=data.get("position", ""),
-        emergency_contact_name=data.get("emergency_contact_name", ""),
-        emergency_contact_phone=data.get("emergency_contact_phone", ""),
-        professional_skills=data.get("professional_skills", "")
-    )
-    db.session.add(new_record)
-    db.session.commit()
-    return jsonify({"message": "Personal info created", "id": new_record.id}), 201
+#     new_record = PersonalInfo(
+#         first_name=data["first_name"],
+#         last_name=data["last_name"],
+#         email=data["email"],
+#         phone=data.get("phone", ""),
+#         department=data.get("department", ""),
+#         position=data.get("position", ""),
+#         emergency_contact_name=data.get("emergency_contact_name", ""),
+#         emergency_contact_phone=data.get("emergency_contact_phone", ""),
+#         professional_skills=data.get("professional_skills", "")
+#     )
+#     db.session.add(new_record)
+#     db.session.commit()
+#     return jsonify({"message": "Personal info created", "id": new_record.id}), 201
 
-@app.route('/personal_info', methods=['GET'])
-def get_personal_info():
-    """
-    If ?name=<someName> is provided, searches for records where first_name or last_name
-    contains <someName> (case-insensitive).
-    Otherwise, returns all personal info records.
-    Example:
-      GET /personal_info           -> fetches all
-      GET /personal_info?name=John -> fetches those matching 'John'
-    """
-    name_filter = request.args.get("name", type=str)
-    id_filter=request.args.get('id')
+# @app.route('/personal_info', methods=['GET'])
+# def get_personal_info():
+#     """
+#     If ?name=<someName> is provided, searches for records where first_name or last_name
+#     contains <someName> (case-insensitive).
+#     Otherwise, returns all personal info records.
+#     Example:
+#       GET /personal_info           -> fetches all
+#       GET /personal_info?name=John -> fetches those matching 'John'
+#     """
+#     name_filter = request.args.get("name", type=str)
+#     id_filter=request.args.get('id')
 
-    query = PersonalInfo.query
+#     query = PersonalInfo.query
 
-    if name_filter:
-        # Filter where first_name or last_name contains the name_filter (case-insensitive)
-        query = PersonalInfo.query.filter(
-            (PersonalInfo.first_name.ilike(f"%{name_filter}%")) |
-            (PersonalInfo.last_name.ilike(f"%{name_filter}%"))
-        )
-    if id_filter:
-        query = query.filter_by(id=id_filter)
+#     if name_filter:
+#         # Filter where first_name or last_name contains the name_filter (case-insensitive)
+#         query = PersonalInfo.query.filter(
+#             (PersonalInfo.first_name.ilike(f"%{name_filter}%")) |
+#             (PersonalInfo.last_name.ilike(f"%{name_filter}%"))
+#         )
+#     if id_filter:
+#         query = query.filter_by(id=id_filter)
 
 
-    records = query.all()
+#     records = query.all()
 
-    results = []
-    for r in records:
-        results.append({
-            "id": r.id,
-            "first_name": r.first_name,
-            "last_name": r.last_name,
-            "email": r.email,
-            "phone": r.phone,
-            "department": r.department,
-            "position": r.position,
-            "emergency_contact_name": r.emergency_contact_name,
-            "emergency_contact_phone": r.emergency_contact_phone,
-            "professional_skills": r.professional_skills
-        })
+#     results = []
+#     for r in records:
+#         results.append({
+#             "id": r.id,
+#             "first_name": r.first_name,
+#             "last_name": r.last_name,
+#             "email": r.email,
+#             "phone": r.phone,
+#             "department": r.department,
+#             "position": r.position,
+#             "emergency_contact_name": r.emergency_contact_name,
+#             "emergency_contact_phone": r.emergency_contact_phone,
+#             "professional_skills": r.professional_skills
+#         })
 
-    return jsonify(results), 200
+#     return jsonify(results), 200
 
-# Update personal info by ID (PUT)
-@app.route('/personal_info/<int:info_id>', methods=['PUT'])
-# @jwt_required()
-def update_personal_info(info_id):
+# # Update personal info by ID (PUT)
+# @app.route('/personal_info/<int:info_id>', methods=['PUT'])
+# # @jwt_required()
+# def update_personal_info(info_id):
 
-    # claims = get_jwt()
-    # if claims.get("role") != "employee":
-    #     return jsonify({"message": "Employees only"}), 403
+#     # claims = get_jwt()
+#     # if claims.get("role") != "employee":
+#     #     return jsonify({"message": "Employees only"}), 403
 
-    record = PersonalInfo.query.get_or_404(info_id)
-    data = request.get_json() or {}
+#     record = PersonalInfo.query.get_or_404(info_id)
+#     data = request.get_json() or {}
 
-    # Update fields if provided
-    record.first_name = data.get("first_name", record.first_name)
-    record.last_name  = data.get("last_name", record.last_name)
-    record.email      = data.get("email", record.email)
-    record.phone      = data.get("phone", record.phone)
-    record.department = data.get("department", record.department)
-    record.position   = data.get("position", record.position)
-    record.emergency_contact_name = data.get("emergency_contact_name", record.emergency_contact_name)
-    record.emergency_contact_phone = data.get("emergency_contact_phone", record.emergency_contact_phone)
-    record.professional_skills = data.get("professional_skills", record.professional_skills)
+#     # Update fields if provided
+#     record.first_name = data.get("first_name", record.first_name)
+#     record.last_name  = data.get("last_name", record.last_name)
+#     record.email      = data.get("email", record.email)
+#     record.phone      = data.get("phone", record.phone)
+#     record.department = data.get("department", record.department)
+#     record.position   = data.get("position", record.position)
+#     record.emergency_contact_name = data.get("emergency_contact_name", record.emergency_contact_name)
+#     record.emergency_contact_phone = data.get("emergency_contact_phone", record.emergency_contact_phone)
+#     record.professional_skills = data.get("professional_skills", record.professional_skills)
 
-    db.session.commit()
-    return jsonify({"message": f"Personal info {info_id} updated"}), 200
+#     db.session.commit()
+#     return jsonify({"message": f"Personal info {info_id} updated"}), 200
 
-# Delete personal info by ID (DELETE)
-@app.route('/personal_info/<int:info_id>', methods=['DELETE'])
-# @jwt_required()
-def delete_personal_info(info_id):
+# # Delete personal info by ID (DELETE)
+# @app.route('/personal_info/<int:info_id>', methods=['DELETE'])
+# # @jwt_required()
+# def delete_personal_info(info_id):
 
-    # claims = get_jwt()
-    # if claims.get("role") != "employee":
-    #     return jsonify({"message": "Employees only"}), 403
+#     # claims = get_jwt()
+#     # if claims.get("role") != "employee":
+#     #     return jsonify({"message": "Employees only"}), 403
 
-    record = PersonalInfo.query.get_or_404(info_id)
-    db.session.delete(record)
-    db.session.commit()
-    return jsonify({"message": f"Personal info {info_id} deleted"}), 200
+#     record = PersonalInfo.query.get_or_404(info_id)
+#     db.session.delete(record)
+#     db.session.commit()
+#     return jsonify({"message": f"Personal info {info_id} deleted"}), 200
 
 
 @app.route('/documents', methods=['POST'])
@@ -1238,7 +1305,7 @@ def upload_document():
         return jsonify({"message": "Invalid employee_id"}), 400
 
     # Verify that the employee exists.
-    employee = PersonalInfo.query.get(employee_id)
+    employee = Employee.query.get(employee_id)
     if not employee:
         return jsonify({"message": "Employee not found"}), 404
 
@@ -1321,8 +1388,8 @@ def list_documents():
     Employee details include: name, position, and department.
     """
     # Join Document with PersonalInfo.
-    docs = db.session.query(Document, PersonalInfo)\
-        .join(PersonalInfo, Document.employee_id == PersonalInfo.id)\
+    docs = db.session.query(Document, Employee)\
+        .join(Employee, Document.employee_id == Employee.id)\
         .order_by(Document.upload_time.desc()).all()
 
     results = []
