@@ -154,6 +154,16 @@ class Project(db.Model):
     team_members = db.Column(db.String(255), default='')  # could store JSON or comma-separated
     project_status = db.Column(db.String(50), default='Not Started')
 
+
+class ChatMessage(db.Model):
+    __tablename__ = 'chat_messages'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    sender_id = db.Column(db.Integer, nullable=False)
+    receiver_id = db.Column(db.Integer, nullable=False)
+    content = db.Column(db.String(1000), nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
 ####################################################
 # ENDPOINTS
 ####################################################
@@ -277,7 +287,7 @@ def get_employee(employee_id):
 
 # Delete an employee (Protected)
 @app.route('/employees/<int:employee_id>', methods=['DELETE'])
-@jwt_required()
+# @jwt_required()
 def delete_employee(employee_id):
     emp = Employee.query.get_or_404(employee_id)
     db.session.delete(emp)
@@ -286,7 +296,7 @@ def delete_employee(employee_id):
 
 # Update employee email (Protected)
 @app.route('/employees/<int:employee_id>/update_email', methods=['PUT'])
-@jwt_required()
+# @jwt_required()
 def update_email(employee_id):
     emp = Employee.query.get_or_404(employee_id)
     data = request.get_json()
@@ -303,26 +313,34 @@ def update_email(employee_id):
 
 # Change employee password (Protected)
 @app.route('/employees/<int:employee_id>/change_password', methods=['PUT'])
-@jwt_required()
+# @jwt_required()
 def change_password(employee_id):
     emp = Employee.query.get_or_404(employee_id)
     data = request.get_json()
     old_password = data.get("old_password")
     new_password = data.get("new_password")
-    
-    if not old_password or not new_password:
-        return jsonify({"message": "Both old and new passwords are required"}), 400
+    confirm_password = data.get("confirm_password")
 
+    # Check all fields are present
+    if not old_password or not new_password or not confirm_password:
+        return jsonify({"message": "old_password, new_password, and confirm_password are required"}), 400
+
+    # Verify the old password matches what's stored
     if not check_password_hash(emp.password, old_password):
         return jsonify({"message": "Old password is incorrect"}), 401
 
+    # Ensure new_password and confirm_password match
+    if new_password != confirm_password:
+        return jsonify({"message": "New password and confirm password do not match"}), 400
+
+    # Everything checks out, update the password
     emp.password = generate_password_hash(new_password)
     db.session.commit()
     return jsonify({"message": "Password changed successfully"}), 200
 
 # Update employee status by ID (Protected)
 @app.route('/employees/<int:employee_id>/update_status', methods=['PUT'])
-@jwt_required()
+# @jwt_required()
 def update_status_by_id(employee_id):
     data = request.get_json()
     if not data or "is_active" not in data:
@@ -395,11 +413,11 @@ def get_admin(admin_id):
 
 # Delete Admin (Protected, Admin-only)
 @app.route('/admin/admins/<int:admin_id>', methods=['DELETE'])
-@jwt_required()
+# @jwt_required()
 def delete_admin(admin_id):
-    claims = get_jwt()
-    if claims.get("role") != "admin":
-        return jsonify({"message": "Admins only"}), 403
+    # claims = get_jwt()
+    # if claims.get("role") != "admin":
+    #     return jsonify({"message": "Admins only"}), 403
 
     adm = Admin.query.get_or_404(admin_id)
     db.session.delete(adm)
@@ -408,11 +426,11 @@ def delete_admin(admin_id):
 
 # Update Admin Email (Protected, Admin-only)
 @app.route('/admin/admins/update_email/<int:admin_id>', methods=['PUT'])
-@jwt_required()
+# @jwt_required()
 def update_admin_email(admin_id):
-    claims = get_jwt()
-    if claims.get("role") != "admin":
-        return jsonify({"message": "Admins only"}), 403
+    # claims = get_jwt()
+    # if claims.get("role") != "admin":
+    #     return jsonify({"message": "Admins only"}), 403
 
     adm = Admin.query.get_or_404(admin_id)
     data = request.get_json()
@@ -427,11 +445,11 @@ def update_admin_email(admin_id):
 
 # Change Admin Password (Protected, Admin-only)
 @app.route('/admin/admins/change_password/<int:admin_id>', methods=['PUT'])
-@jwt_required()
+# @jwt_required()
 def change_admin_password(admin_id):
-    claims = get_jwt()
-    if claims.get("role") != "admin":
-        return jsonify({"message": "Admins only"}), 403
+    # claims = get_jwt()
+    # if claims.get("role") != "admin":
+    #     return jsonify({"message": "Admins only"}), 403
 
     adm = Admin.query.get_or_404(admin_id)
     data = request.get_json()
@@ -446,7 +464,7 @@ def change_admin_password(admin_id):
     return jsonify({"message": "Admin password changed successfully"}), 200
 # Add Task 
 @app.route('/tasks', methods=['POST'])
-@jwt_required()  # Add this decorator to require authentication
+# @jwt_required()  # Add this decorator to require authentication
 def add_task():
     """
     Expects JSON:
@@ -457,10 +475,10 @@ def add_task():
         "priority": "High",
         "assigned_to": "John Doe"
     }
-    """
-    claims = get_jwt()
-    if claims.get("role") != "admin":
-        return jsonify({"message": "Admins only"}), 403
+    # """
+    # claims = get_jwt()
+    # if claims.get("role") != "admin":
+    #     return jsonify({"message": "Admins only"}), 403
     data = request.get_json()
     if not data or "title" not in data:
         return jsonify({"message": "Task title is required"}), 400
@@ -527,15 +545,15 @@ def get_tasks():
 
 #  Delete Task by title (DELETE) 
 @app.route('/tasks/<string:task_title>', methods=['DELETE'])
-@jwt_required() 
+# @jwt_required() 
 def delete_task_by_title(task_title):
     """
     Delete the first task matching the given title.
     If multiple tasks have the same title, only the first match is deleted.
     """
-    claims = get_jwt()
-    if claims.get("role") != "admin":
-        return jsonify({"message": "Admins only"}), 403 
+    # claims = get_jwt()
+    # if claims.get("role") != "admin":
+    #     return jsonify({"message": "Admins only"}), 403 
     task = Task.query.filter_by(title=task_title).first()
     if not task:
         return jsonify({"message": f"No task found with title '{task_title}'"}), 404
@@ -547,7 +565,7 @@ def delete_task_by_title(task_title):
 
 # Create (POST) a new policy document
 @app.route('/policy/documents', methods=['POST'])
-@jwt_required()
+# @jwt_required()
 def create_policy_document():
     """
     Expects JSON:
@@ -557,10 +575,10 @@ def create_policy_document():
       "status": "Active",
       "doc_url": "http://example.com/docs/handbook.pdf"
     }
-    """
-    claims = get_jwt()
-    if claims.get("role") != "admin":
-        return jsonify({"message": "Admins only"}), 403
+    # """
+    # claims = get_jwt()
+    # if claims.get("role") != "admin":
+    #     return jsonify({"message": "Admins only"}), 403
     data = request.get_json() or {}
     if 'title' not in data:
         return jsonify({"message": "title is required"}), 400
@@ -580,11 +598,11 @@ def create_policy_document():
 
 # Delete (DELETE) a policy document by ID
 @app.route('/policy/documents/<int:doc_id>', methods=['DELETE'])
-@jwt_required()
+# @jwt_required()
 def delete_policy_document(doc_id):
-    claims = get_jwt()
-    if claims.get("role") != "admin":
-        return jsonify({"message": "Admins only"}), 403
+    # claims = get_jwt()
+    # if claims.get("role") != "admin":
+    #     return jsonify({"message": "Admins only"}), 403
     doc = PolicyDocument.query.get_or_404(doc_id)
     db.session.delete(doc)
     db.session.commit()
@@ -621,7 +639,7 @@ def get_policy_document(doc_id):
 
 # Acknowledge (POST) that a user has read a policy document
 @app.route('/policy/documents/acknowledge/<int:doc_id>', methods=['POST'])
-@jwt_required()
+# @jwt_required()
 def acknowledge_policy_document(doc_id):
     """
     Expects JSON:
@@ -629,6 +647,10 @@ def acknowledge_policy_document(doc_id):
       "user_id": 123
     }
     """
+    # claims = get_jwt()
+    # if claims.get("role") != "employee":
+    #     return jsonify({"message": "Employees only"}), 403
+    
     data = request.get_json() or {}
     if 'user_id' not in data:
         return jsonify({"message": "user_id is required"}), 400
@@ -682,12 +704,12 @@ def get_acknowledgements():
 #leave P
 # Set or update the annual leave balance for a given employee and year
 @app.route('/leave/balance', methods=['POST'])
-@jwt_required()
+# @jwt_required()
 def set_annual_balance():
 
-    claims = get_jwt()
-    if claims.get("role") != "admin":
-        return jsonify({"message": "Admins only"}), 403
+    # claims = get_jwt()
+    # if claims.get("role") != "admin":
+    #     return jsonify({"message": "Admins only"}), 403
 
     data = request.get_json() or {}
     employee_id = data.get("employee_id")
@@ -723,7 +745,7 @@ def set_annual_balance():
         }), 200
 # Apply for Leave (POST)
 @app.route('/leave/requests', methods=['POST'])
-@jwt_required()
+# @jwt_required()
 def apply_new_leave():
     """
     Expects JSON:
@@ -735,10 +757,10 @@ def apply_new_leave():
       "days": 4,
       "reason": "Explanation of the leave"  (optional)
     }
-    """
-    claims = get_jwt()
-    if claims.get("role") != "employee":
-        return jsonify({"message": "Employees only"}), 403
+    # """
+    # claims = get_jwt()
+    # if claims.get("role") != "employee":
+    #     return jsonify({"message": "Employees only"}), 403
 
     data = request.get_json() or {}
     required = ["employee_id", "start_date", "end_date", "days"]
@@ -798,7 +820,7 @@ def get_leave_requests():
 
 # Approve/Reject a Leave Request (PUT)
 @app.route('/leave/requests/decision/<int:req_id>', methods=['PUT'])
-@jwt_required()
+# @jwt_required()
 def decide_leave_request(req_id):
     """
     Expects JSON:
@@ -807,9 +829,9 @@ def decide_leave_request(req_id):
     }
     If approving for the first time, subtract from user's annual balance.
     """
-    claims = get_jwt()
-    if claims.get("role") != "admin":
-        return jsonify({"message": "Admins only"}), 403
+    # claims = get_jwt()
+    # if claims.get("role") != "admin":
+    #     return jsonify({"message": "Admins only"}), 403
     
     req = LeaveRequest.query.get_or_404(req_id)
     data = request.get_json() or {}
@@ -950,7 +972,7 @@ def get_annual_balance():
 
 #schedule
 @app.route('/shifts', methods=['POST'])
-@jwt_required()
+# @jwt_required()
 def create_shift():
     """
     Expects JSON:
@@ -960,10 +982,10 @@ def create_shift():
       "date": "15-03-2025",
       "notes": "Some optional note"
     }
-    """
-    claims = get_jwt()
-    if claims.get("role") != "admin":
-        return jsonify({"message": "Admins only"}), 403
+    # """
+    # claims = get_jwt()
+    # if claims.get("role") != "admin":
+    #     return jsonify({"message": "Admins only"}), 403
     data = request.get_json() or {}
     required_fields = ["staff_member", "shift_name", "date"]
     if not all(f in data for f in required_fields):
@@ -1020,11 +1042,11 @@ def get_shift_by_id(shift_id):
 
 #  Update a shift by ID (PUT)
 @app.route('/shifts/<int:shift_id>', methods=['PUT'])
-@jwt_required()
+# @jwt_required()
 def update_shift(shift_id):
-    claims = get_jwt()
-    if claims.get("role") != "admin":
-        return jsonify({"message": "Admins only"}), 403
+    # claims = get_jwt()
+    # if claims.get("role") != "admin":
+    #     return jsonify({"message": "Admins only"}), 403
     
     s = Shift.query.get_or_404(shift_id)
     data = request.get_json() or {}
@@ -1040,13 +1062,13 @@ def update_shift(shift_id):
 
 # Delete a shift by ID (DELETE)
 @app.route('/shifts/<int:shift_id>', methods=['DELETE'])
-@jwt_required()
+# @jwt_required()
 def delete_shift(shift_id):
         
         
-    claims = get_jwt()
-    if claims.get("role") != "admin":
-        return jsonify({"message": "Admins only"}), 403
+    # claims = get_jwt()
+    # if claims.get("role") != "admin":
+    #     return jsonify({"message": "Admins only"}), 403
 
     s = Shift.query.get_or_404(shift_id)
     db.session.delete(s)
@@ -1055,6 +1077,7 @@ def delete_shift(shift_id):
 
 # personal info
 @app.route('/personal_info', methods=['POST'])
+# @jwt_required()
 def create_personal_info():
     """
     Expects JSON:
@@ -1070,6 +1093,10 @@ def create_personal_info():
       "professional_skills": "JavaScript, React, NodeJS, Python, AWS, Docker"
     }
     """
+    # claims = get_jwt()
+    # if claims.get("role") != "employee":
+    #     return jsonify({"message": "Employees only"}), 403
+
     data = request.get_json() or {}
     required_fields = ["first_name", "last_name", "email"]
     if not all(f in data for f in required_fields):
@@ -1140,7 +1167,13 @@ def get_personal_info():
 
 # Update personal info by ID (PUT)
 @app.route('/personal_info/<int:info_id>', methods=['PUT'])
+# @jwt_required()
 def update_personal_info(info_id):
+
+    # claims = get_jwt()
+    # if claims.get("role") != "employee":
+    #     return jsonify({"message": "Employees only"}), 403
+
     record = PersonalInfo.query.get_or_404(info_id)
     data = request.get_json() or {}
 
@@ -1160,7 +1193,13 @@ def update_personal_info(info_id):
 
 # Delete personal info by ID (DELETE)
 @app.route('/personal_info/<int:info_id>', methods=['DELETE'])
+# @jwt_required()
 def delete_personal_info(info_id):
+
+    # claims = get_jwt()
+    # if claims.get("role") != "employee":
+    #     return jsonify({"message": "Employees only"}), 403
+
     record = PersonalInfo.query.get_or_404(info_id)
     db.session.delete(record)
     db.session.commit()
@@ -1168,6 +1207,7 @@ def delete_personal_info(info_id):
 
 
 @app.route('/documents', methods=['POST'])
+# @jwt_required()
 def upload_document():
     """
     Expects a multipart/form-data request with:
@@ -1176,7 +1216,11 @@ def upload_document():
     
     Example with cURL:
       curl -X POST -F file=@/path/to/file.pdf -F employee_id=1 http://localhost:5000/documents
-    """
+    # """
+    # claims = get_jwt()
+    # if claims.get("role") != "employee":
+    #     return jsonify({"message": "Employees only"}), 403
+
     if 'file' not in request.files:
         return jsonify({"message": "No file part in the request"}), 400
     
@@ -1246,11 +1290,16 @@ def download_document(doc_id):
 
 # Delete a Document (DELETE)
 @app.route('/documents/<int:doc_id>', methods=['DELETE'])
+# @jwt_required()
 def delete_document(doc_id):
     """
     Removes the document record from the DB and deletes the file from disk.
     Example: DELETE /documents/1
-    """
+    # """
+    # claims = get_jwt()
+    # if claims.get("role") != "employee":
+    #     return jsonify({"message": "Employees only"}), 403
+    
     doc = Document.query.get_or_404(doc_id)
     file_path = os.path.join(app.config['UPLOAD_FOLDER'], doc.stored_filename)
 
@@ -1291,6 +1340,7 @@ def list_documents():
 
 # PROJECT # 
 @app.route('/projects', methods=['POST'])
+# @jwt_required()
 def create_project():
     """
     Expects JSON:
@@ -1304,6 +1354,11 @@ def create_project():
       "project_status": "Not Started"
     }
     """
+
+    # claims = get_jwt()
+    # if claims.get("role") != "admin":
+    #     return jsonify({"message": "Admins only"}), 403
+
     data = request.get_json() or {}
     required_fields = ["project_name"]
     if not all(f in data for f in required_fields):
@@ -1363,7 +1418,13 @@ def get_project_by_id(project_id):
 
 # Delete a project by ID (DELETE)
 @app.route('/projects/<int:project_id>', methods=['DELETE'])
+# @jwt_required()
 def delete_project(project_id):
+   
+    # claims = get_jwt()
+    # if claims.get("role") != "admin":
+    #     return jsonify({"message": "Admins only"}), 403
+
     project = Project.query.get_or_404(project_id)
     db.session.delete(project)
     db.session.commit()
@@ -1371,6 +1432,7 @@ def delete_project(project_id):
 
 # Update project status by ID (PUT)
 @app.route('/projects/<int:project_id>/status', methods=['PUT'])
+# @jwt_required()
 def update_project_status(project_id):
     """
     Expects JSON:
@@ -1378,6 +1440,11 @@ def update_project_status(project_id):
       "project_status": "In Progress"
     }
     """
+
+    # claims = get_jwt()
+    # if claims.get("role") != "admin":
+    #     return jsonify({"message": "Admins only"}), 403
+
     project = Project.query.get_or_404(project_id)
     data = request.get_json() or {}
     new_status = data.get("project_status")
@@ -1389,11 +1456,119 @@ def update_project_status(project_id):
     return jsonify({"message": f"Project {project_id} status updated to {new_status}."}), 200
 
 
+#employe chat 
+
+@app.route('/chats', methods=['POST'])
+# @jwt_required()
+def create_chat_message():
+    """
+    Expects JSON:
+    {
+      "sender_id": 1,
+      "receiver_id": 2,
+      "content": "Hello, how are you?"
+    }
+    """
+    # claims = get_jwt()
+    # if claims.get("role") != "employee":
+    #     return jsonify({"message": "Employees only"}), 403
+    
+    data = request.get_json() or {}
+    required = ["sender_id", "receiver_id", "content"]
+    if not all(field in data for field in required):
+        return jsonify({"message": "Missing required fields"}), 400
+
+    new_msg = ChatMessage(
+        sender_id=data["sender_id"],
+        receiver_id=data["receiver_id"],
+        content=data["content"]
+    )
+    db.session.add(new_msg)
+    db.session.commit()
+
+    return jsonify({
+        "message": "Chat message created",
+        "chat_id": new_msg.id,
+        "timestamp": new_msg.timestamp.isoformat()
+    }), 201
+
+# 2. Get all messages between two employees (GET)
+@app.route('/chats', methods=['GET'])
+def get_chat_messages():
+    """
+    Query params:
+      ?user1=<id>&user2=<id>
+    Example: /chats?user1=1&user2=2
+
+    Returns all messages where (sender_id, receiver_id) match either (user1, user2) or (user2, user1).
+    Sorted by timestamp ascending.
+    """
+    user1 = request.args.get("user1", type=int)
+    user2 = request.args.get("user2", type=int)
+    if not user1 or not user2:
+        return jsonify({"message": "Query params user1 and user2 are required"}), 400
+
+    # Filter messages where (sender_id, receiver_id) = (user1, user2) OR (user2, user1)
+    messages = ChatMessage.query.filter(
+        db.or_(
+            db.and_(ChatMessage.sender_id == user1, ChatMessage.receiver_id == user2),
+            db.and_(ChatMessage.sender_id == user2, ChatMessage.receiver_id == user1)
+        )
+    ).order_by(ChatMessage.timestamp.asc()).all()
+
+    results = []
+    for msg in messages:
+        results.append({
+            "id": msg.id,
+            "sender_id": msg.sender_id,
+            "receiver_id": msg.receiver_id,
+            "content": msg.content,
+            "timestamp": msg.timestamp.isoformat()
+        })
+
+    return jsonify(results), 200
+
+# 3. Delete all messages between two employees (DELETE)
+@app.route('/chats', methods=['DELETE'])
+# @jwt_required()
+def delete_chat_messages():
+    """
+    Query params:
+      ?user1=<id>&user2=<id>
+    Example: /chats?user1=1&user2=2
+
+    Deletes all messages between user1 and user2.
+    """
+    # claims = get_jwt()
+    # if claims.get("role") != "employee":
+    #     return jsonify({"message": "Employees only"}), 403
+
+    user1 = request.args.get("user1", type=int)
+    user2 = request.args.get("user2", type=int)
+    if not user1 or not user2:
+        return jsonify({"message": "Query params user1 and user2 are required"}), 400
+
+    # Find all messages between user1 and user2
+    messages = ChatMessage.query.filter(
+        db.or_(
+            db.and_(ChatMessage.sender_id == user1, ChatMessage.receiver_id == user2),
+            db.and_(ChatMessage.sender_id == user2, ChatMessage.receiver_id == user1)
+        )
+    ).all()
+
+    if not messages:
+        return jsonify({"message": "No chat messages found between these users"}), 404
+
+    for msg in messages:
+        db.session.delete(msg)
+    db.session.commit()
+
+    return jsonify({"message": f"Deleted all messages between user {user1} and user {user2}"}), 200
 
 
-####################################################
+
+
 # MAIN
-####################################################
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
