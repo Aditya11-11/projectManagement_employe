@@ -320,7 +320,8 @@ def get_employees():
             "position": emp.position,
             "emergency_contact_name": emp.emergency_contact_name,
             "emergency_contact_phone": emp.emergency_contact_phone,
-            "professional_skills": emp.professional_skills
+            "professional_skills": emp.professional_skills,
+            "employee_geo_id":emp.employee_geo_id
         })
     return jsonify(result), 200
 
@@ -340,7 +341,8 @@ def get_employee(employee_id):
         "position": emp.position,
         "emergency_contact_name": emp.emergency_contact_name,
         "emergency_contact_phone": emp.emergency_contact_phone,
-        "professional_skills": emp.professional_skills
+        "professional_skills": emp.professional_skills,
+        "employee_geo_id":emp.employee_geo_id
     }
     return jsonify(result), 200
 
