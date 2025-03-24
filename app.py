@@ -1,4 +1,6 @@
 import os
+import random
+import string
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify,send_from_directory, abort
 from flask_sqlalchemy import SQLAlchemy
@@ -47,6 +49,7 @@ class Employee(db.Model):  # employeeData
     last_name  = db.Column(db.String(50), nullable=False)
     email = db.Column(db.String(100), unique=True, nullable=False)
     password = db.Column(db.String(128), nullable=False)
+    employee_geo_id = db.Column(db.String(16), unique=True, nullable=False)  # Public employee ID
     department = db.Column(db.String(100))
     is_active  = db.Column(db.Boolean, default=True)
     two_factor_enabled = db.Column(db.Boolean, default=False)
@@ -203,6 +206,9 @@ class CommunicationMessage(db.Model):
 # EMPLOYEE AUTH & CRUD ENDPOINTS
 # -------------------------
 
+def generate_employee_code(length=8):
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
+
 # Employee Registration (Public)
 @app.route('/auth/register', methods=['POST'])
 def register():
@@ -214,16 +220,22 @@ def register():
     last_name = data.get("last_name")
     email = data.get("email")
     password = data.get("password")
-    phone=data.get('phone')
+    phone = data.get("phone")
     
-    if not all([first_name, last_name, email, password,phone]):
+    if not all([first_name, last_name, email, password, phone]):
         return jsonify({"message": "Missing required fields"}), 400
 
     if Employee.query.filter_by(email=email).first():
         return jsonify({"message": "Email already registered"}), 400
 
+    # Generate a unique random employee code
+    code = generate_employee_code()
+    while Employee.query.filter_by(employee_geo_id=code).first() is not None:
+        code = generate_employee_code()
+
     hashed_password = generate_password_hash(password)
     new_employee = Employee(
+        employee_geo_id=code,
         first_name=first_name,
         last_name=last_name,
         email=email,
@@ -233,7 +245,8 @@ def register():
     db.session.add(new_employee)
     db.session.commit()
 
-    return jsonify({"message": "Registration successful", "employee_id": new_employee.id}), 201
+    return jsonify({"message": "Registration successful", "employee_geo_code": new_employee.employee_geo_id,"employee_id":new_employee.id}), 201
+
 
 # Unified Login Endpoint (Public)
 @app.route('/auth/login', methods=['POST'])
@@ -1709,7 +1722,6 @@ def delete_chat_messages():
     db.session.commit()
 
     return jsonify({"message": f"Deleted all messages between user {user1} and user {user2}"}), 200
-
 
 
 
