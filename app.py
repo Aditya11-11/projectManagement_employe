@@ -81,7 +81,7 @@ class Task(db.Model): # Task Data
     assigned_to = db.Column(db.String(100), default='')
     status = db.Column(db.String(20), default="Pending")  # New field: Pending, In Progress, Completed
     employee_id = db.Column(db.Integer, db.ForeignKey('employees.id'), nullable=False)
-    employee = db.relationship('Employee', backref='documents')
+    employee = db.relationship('Employee', backref='tasks')
 
 
 class PolicyDocument(db.Model): # Policy Document tab
