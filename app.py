@@ -8,6 +8,8 @@ from flask_socketio import SocketIO, emit, join_room, leave_room
 from werkzeug.security import generate_password_hash, check_password_hash 
 from werkzeug.utils import secure_filename
 import json
+from flask_migrate import Migrate  
+from flask_cors import CORS
 
 # JWT imports
 from flask_jwt_extended import (
@@ -29,6 +31,7 @@ app.config['JWT_SECRET_KEY'] = 'super-secret-key'
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(days=1)
 
 
+
 # Define and set the upload folder
 UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -38,6 +41,8 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 db = SQLAlchemy(app)
 jwt = JWTManager(app)
 socketio = SocketIO(app, cors_allowed_origins="*")  # For development only
+migrate = Migrate(app, db)  
+CORS(app,cors_allowed_origins="*")
 
 ####################################################
 # MODELS
@@ -1183,7 +1188,7 @@ def create_shift():
     # if claims.get("role") != "admin":
     #     return jsonify({"message": "Admins only"}), 403
     data = request.get_json() or {}
-    required_fields = ["staff_member", "shift_name", "date"]
+    required_fields = ["staff_member", "shift_name", "date","employee_id"]
     if not all(f in data for f in required_fields):
         return jsonify({"message": "Missing required fields"}), 400
     
@@ -1191,7 +1196,9 @@ def create_shift():
         staff_member=data["staff_member"],
         shift_name=data["shift_name"],
         date=data["date"],
-        notes=data.get("notes", "")
+        notes=data.get("notes", ""),
+        employee_id=data["employee_id"],
+
     )
     db.session.add(new_shift)
     db.session.commit()
@@ -1220,7 +1227,8 @@ def get_shifts():
             "staff_member": s.staff_member,
             "shift_name": s.shift_name,
             "date": s.date,
-            "notes": s.notes
+            "notes": s.notes,
+            "employee_id":s.employee_id
         })
     return jsonify(results), 200
 
@@ -2007,7 +2015,7 @@ def get_employee_dashboard(employee_id):
 
     # 2. Retrieve all tasks assigned to this employee by name
     #    (assuming `Task.assigned_to` stores the full name)
-    assigned_tasks = Task.query.filter_by(assigned_to=employee_full_name).all()
+    assigned_tasks = Task.query.filter_by(employee_id=employee_id).all()
 
     # 3. Identify which tasks are due today
     today_str = datetime.now().strftime("%d-%m-%Y")  # Matches your Task.due_date format "dd-mm-yyyy"
@@ -2015,10 +2023,7 @@ def get_employee_dashboard(employee_id):
 
     # 4. Check if there's a shift scheduled for this employee today
     #    (assuming Shift.staff_member also uses the employee's full name)
-    shift_today = Shift.query.filter(
-        Shift.staff_member.ilike(f"%{employee_full_name}%"),
-        Shift.date == today_str
-    ).first()
+    shift_today = Shift.query.filter_by(employee_id=employee_id, date=today_str).first()
     current_shift = shift_today.shift_name if shift_today else "No shift scheduled"
 
     # 5. Example placeholders: hours today, attendance, weekly time tracking, etc.
