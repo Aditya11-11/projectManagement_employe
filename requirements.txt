@@ -8,3 +8,4 @@ Werkzeug==2.2.2
 dnspython==2.1.0
 Flask-JWT-Extended==4.5.3
 Flask-Migrate==4.1.0
+flask-cors==5.0.1
