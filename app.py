@@ -688,9 +688,9 @@ def update_task(task_id):
     return jsonify({"message": "Task updated", "task_id": task.id}), 200
 
 #  Delete Task by title (DELETE) 
-@app.route('/tasks/<string:task_title>', methods=['DELETE'])
+@app.route('/tasks/<string:id>', methods=['DELETE'])
 # @jwt_required() 
-def delete_task_by_title(task_title):
+def delete_task_by_title(id):
     """
     Delete the first task matching the given title.
     If multiple tasks have the same title, only the first match is deleted.
@@ -698,13 +698,13 @@ def delete_task_by_title(task_title):
     # claims = get_jwt()
     # if claims.get("role") != "admin":
     #     return jsonify({"message": "Admins only"}), 403 
-    task = Task.query.filter_by(title=task_title).first()
-    if not task:
-        return jsonify({"message": f"No task found with title '{task_title}'"}), 404
+    task_id= Task.query.filter_by(id=id).first()
+    if not task_id:
+        return jsonify({"message": f"No task found with title '{id}'"}), 404
     
-    db.session.delete(task)
+    db.session.delete(task_id)
     db.session.commit()
-    return jsonify({"message": f"Task with title '{task_title}' deleted"}), 200
+    return jsonify({"message": f"Task with title '{id}' deleted"}), 200
 
 
 # Create (POST) a new policy document
