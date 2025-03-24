@@ -175,7 +175,7 @@ class Project(db.Model):
     project_lead = db.Column(db.String(100), default='')
     start_date = db.Column(db.String(10), default='')  # "dd-mm-yyyy"
     due_date = db.Column(db.String(10), default='')    # "dd-mm-yyyy"
-    team_members = db.Column(db.String(255), default='')  # could store JSON or comma-separated
+    team_members = db.Column(db.Text(255), default='[]')  # could store JSON or comma-separated
     project_status = db.Column(db.String(50), default='Not Started')
 
 
@@ -631,7 +631,7 @@ def add_task():
     priority = data.get("priority", "Medium")
     assigned_to = data.get("assigned_to", "")
     project=data.get("project")
-    employee_id=data["employee_id"],
+    employee_id=data["employee_id"]
 
 
     new_task = Task(
@@ -1568,6 +1568,13 @@ def create_project():
     required_fields = ["project_name"]
     if not all(f in data for f in required_fields):
         return jsonify({"message": "Missing required fields"}), 400
+    
+    team_members = data.get("team_members", [])
+    if isinstance(team_members, list):
+        team_members_str = json.dumps(team_members)
+    else:
+        team_members_str = json.dumps(team_members.split(','))
+
 
     new_project = Project(
         project_name=data["project_name"],
@@ -1575,7 +1582,7 @@ def create_project():
         project_lead=data.get("project_lead", ""),
         start_date=data.get("start_date", ""),
         due_date=data.get("due_date", ""),
-        team_members=data.get("team_members", ""),
+        team_members=team_members_str,
         project_status=data.get("project_status", "Not Started")
     )
     db.session.add(new_project)
@@ -2030,7 +2037,7 @@ def get_employee_dashboard(employee_id):
     #    Replace these with real calculations if you track time logs or attendance data.
     hours_today = 8
     attendance_status = "Present"
-    weekly_time_tracking = [0, 2, 3, 4, 6, 2, 0]  # Example placeholder array
+    # weekly_time_tracking = [0, 2, 3, 4, 6, 2, 0]  # Example placeholder array
 
     records = Compliences.query.all()
     output = []
@@ -2082,7 +2089,7 @@ def get_employee_dashboard(employee_id):
         "current_shift": current_shift,
         "hours_today": hours_today,
         "attendance": attendance_status,
-        "weekly_time_tracking": weekly_time_tracking,
+        # "weekly_time_tracking": weekly_time_tracking,
         "tasks_due_today": len(tasks_due_today),
         "todays_tasks": [
             {
@@ -2113,10 +2120,81 @@ def get_employee_dashboard(employee_id):
 
     return jsonify(dashboard_data), 200
 
+#Admin Dashboard 
+
+@app.route("/admindashboard", methods=["GET"])
+def get_admin_dashboard():
+    # 1. Count total employees and active employees
+    total_employee = Employee.query.count()
+    active_employees = Employee.query.filter_by(is_active=True).count()
+
+    # 2. Use today's date to retrieve tasks and shift information
+    today_str = datetime.now().strftime("%d-%m-%Y")
+    # Use due_date since Task model uses 'due_date'
+    assigned_tasks = Task.query.filter_by(due_date=today_str).all()
+    tasks_due_today = [t for t in assigned_tasks if t.due_date == today_str]
+
+    # For shifts, use the correct column 'date'
+    shift_today = Shift.query.filter_by(date=today_str).first()
+    current_shift = shift_today.shift_name if shift_today else "No shift scheduled"
+
+    # 3. Get all compliance records (unchanged)
+    records = Compliences.query.all()
+    announcements = []
+    for record in records:
+        announcements.append({
+            "id": record.id,
+            "subjects": record.subjects,
+            "Discription": record.Discription,
+            "date": record.date,
+            "posted_by": record.posted_by
+        })
+
+    # 4. Get all communications (team chat) information (unchanged)
+    all_comms = Communication.query.all()
+    team_chat = []
+    for comm in all_comms:
+        team_chat.append({
+            "communication_id": comm.id,
+            "subject": comm.subject,
+            "channel": comm.channel,
+            "priority": comm.priority,
+            "project": comm.project,
+            "date": comm.date,
+        })
+
+    # 5. Build the dashboard response
+    dashboard_data = {
+        "employee_all": [{
+            "total_employee": total_employee,
+            "active_employee": active_employees
+        }],
+        "current_shift": current_shift,
+        "tasks_due_today": len(tasks_due_today),
+        "todays_tasks": [{
+            "task_id": t.id,
+            "title": t.title,
+            "due_date": t.due_date,
+            "priority": t.priority,
+            "status": t.status
+        } for t in tasks_due_today],
+        "total_assigned_tasks": len(assigned_tasks),
+        "all_tasks": [{
+            "task_id": t.id,
+            "title": t.title,
+            "due_date": t.due_date,
+            "priority": t.priority,
+            "status": t.status
+        } for t in assigned_tasks],
+        "team_chat": team_chat,
+        "announcements": announcements
+    }
+
+    return jsonify(dashboard_data), 200
 
 
 # MAIN
-if __name__ == '__main__':
+if __name__ == '__main__': 
     with app.app_context():
         db.create_all()
         print("Tables created (if not already present).")
