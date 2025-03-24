@@ -22,7 +22,7 @@ app = Flask(__name__)
 
 # Local MySQL Database Configuration (fallback to SQLite for development)
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///test.db')
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = True
 # Set a secret key for JWT (change this in production)
 app.config['JWT_SECRET_KEY'] = 'super-secret-key'
 
@@ -53,7 +53,7 @@ class Employee(db.Model):  # employeeData
     department = db.Column(db.String(100))
     is_active  = db.Column(db.Boolean, default=True)
     two_factor_enabled = db.Column(db.Boolean, default=False)
-    role = db.Column(db.String(50), default='Employee')
+    role = db.Column(db.String(50), default='')
     phone= db.Column(db.Integer,nullable=False)
     department = db.Column(db.String(100), default='')
     position = db.Column(db.String(100), default='')
@@ -68,6 +68,7 @@ class Admin(db.Model):  # admin data
     last_name  = db.Column(db.String(50), nullable=False)
     email = db.Column(db.String(100), unique=True, nullable=False)
     password = db.Column(db.String(128), nullable=False)
+    phone=db.Column(db.Integer(),nullable=False)
 
 class Task(db.Model): # Task Data
     __tablename__ = 'tasks'
@@ -79,6 +80,8 @@ class Task(db.Model): # Task Data
     project=db.Column(db.String(100),nullable=False)
     assigned_to = db.Column(db.String(100), default='')
     status = db.Column(db.String(20), default="Pending")  # New field: Pending, In Progress, Completed
+    employee_id = db.Column(db.Integer, db.ForeignKey('employees.id'), nullable=False)
+    employee = db.relationship('Employee', backref='documents')
 
 
 class PolicyDocument(db.Model): # Policy Document tab
@@ -129,6 +132,10 @@ class Shift(db.Model): #SHIFT DATA
     shift_name   = db.Column(db.String(50), nullable=False)   # e.g. "Morning (07:00 - 13:00)"
     date         = db.Column(db.String(10), nullable=False)   # "dd-mm-yyyy"
     notes        = db.Column(db.String(200), default='') 
+    employee_id = db.Column(db.Integer, db.ForeignKey('employees.id'), nullable=False)
+    employee = db.relationship('Employee', backref='shifts')
+
+
 
 
 # class PersonalInfo(db.Model):
@@ -174,7 +181,7 @@ class ChatMessage(db.Model):
     sender_id = db.Column(db.Integer, nullable=False)
     receiver_id = db.Column(db.Integer, nullable=False)
     content = db.Column(db.String(1000), nullable=False)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    timestamp = db.Column(db.Integer, nullable=False)
 
 class Communication(db.Model):
     __tablename__ = 'communications'
@@ -194,14 +201,27 @@ class CommunicationMessage(db.Model):
     communication_id = db.Column(db.Integer, db.ForeignKey('communications.id'), nullable=False)
     sender_id = db.Column(db.Integer, nullable=False)  # or store a string if needed
     content = db.Column(db.String(1000), nullable=False)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    timestamp = db.Column(db.Integer, nullable=False)
 
     # Relationship to access parent Communication if needed
     communication = db.relationship('Communication', backref='messages')
 
+
+class Compliences(db.Model):
+    __tablename__ = 'compliences'
+    id = db.Column(db.Integer, primary_key=True)
+    subjects = db.Column(db.String(200), nullable=False)
+    Discription = db.Column(db.Text, nullable=False)
+    date = db.Column(db.String(10), nullable=False)  # e.g., "YYYY-MM-DD"
+    posted_by = db.Column(db.String(100), nullable=False)
 ####################################################
 # ENDPOINTS
 ####################################################
+
+# Create all tables if they do not exist
+# with app.app_context():
+#     db.create_all()
+
 # -------------------------
 # EMPLOYEE AUTH & CRUD ENDPOINTS
 # -------------------------
@@ -221,8 +241,9 @@ def register():
     email = data.get("email")
     password = data.get("password")
     phone = data.get("phone")
+    role=data.get("role")
     
-    if not all([first_name, last_name, email, password, phone]):
+    if not all([first_name, last_name, email, password, phone,role]):
         return jsonify({"message": "Missing required fields"}), 400
 
     if Employee.query.filter_by(email=email).first():
@@ -240,7 +261,8 @@ def register():
         last_name=last_name,
         email=email,
         password=hashed_password,
-        phone=phone
+        phone=phone,
+        role=role
     )
     db.session.add(new_employee)
     db.session.commit()
@@ -297,7 +319,7 @@ def unified_login():
             "first_name": employee.first_name,
             "last_name": employee.last_name,
             "email": employee.email,
-            "role": "employee"
+            "role": employee.role
         }), 200
 
     return jsonify({"message": "Invalid credentials"}), 401
@@ -476,6 +498,7 @@ def admin_register():
     last_name = data.get("last_name")
     email = data.get("email")
     password = data.get("password")
+    phone=data.get("phone")
     # Optionally, you can include a parameter like "user_type": "admin" here if needed.
     if not all([first_name, last_name, email, password]):
         return jsonify({"message": "Missing required fields"}), 400
@@ -486,7 +509,8 @@ def admin_register():
         first_name=first_name,
         last_name=last_name,
         email=email,
-        password=hashed_password
+        password=hashed_password,
+        phone=phone
     )
     db.session.add(new_admin)
     db.session.commit()
@@ -589,8 +613,12 @@ def add_task():
     # if claims.get("role") != "admin":
     #     return jsonify({"message": "Admins only"}), 403
     data = request.get_json()
-    if not data or "title" not in data:
-        return jsonify({"message": "Task title is required"}), 400
+    if not data or "title" not in data or "employee_id" not in data:
+        return jsonify({"message": "Task title and employee_id are required"}), 400
+    
+    employee = Employee.query.get(data["employee_id"])
+    if not employee:
+        return jsonify({"message": "Employee not found"}), 404
     
     title = data["title"]
     description = data.get("description", "")
@@ -598,6 +626,8 @@ def add_task():
     priority = data.get("priority", "Medium")
     assigned_to = data.get("assigned_to", "")
     project=data.get("project")
+    employee_id=data["employee_id"],
+
 
     new_task = Task(
         title=title,
@@ -605,7 +635,9 @@ def add_task():
         due_date=due_date,
         priority=priority,
         assigned_to=assigned_to,
-        project=project
+        project=project,
+        employee_id=employee_id,
+
     )
     db.session.add(new_task)
     db.session.commit()
@@ -625,6 +657,7 @@ def get_tasks():
     id_filter=request.args.get('id')
     assingn_filter=request.args.get("assigned_to")
     project_filter=request.args.get("project")
+    employee_id_filter=request.args.get("employee_id")
 
     query = Task.query
     
@@ -644,6 +677,9 @@ def get_tasks():
 
     if project_filter:
         query=query.filter_by(project=project_filter)
+
+    if employee_id_filter :
+        query=query.filter_by(employee_id=employee_id_filter)
         
     tasks = query.all()
     results = []
@@ -656,7 +692,8 @@ def get_tasks():
             "priority": t.priority,
             "assigned_to": t.assigned_to,
             "project":t.project,
-            "status" :t.status
+            "status" :t.status,
+            "employee_id":t.employee_id
         })
     return jsonify(results), 200
 
@@ -1634,14 +1671,15 @@ def create_chat_message():
     #     return jsonify({"message": "Employees only"}), 403
     
     data = request.get_json() or {}
-    required = ["sender_id", "receiver_id", "content"]
+    required = ["sender_id", "receiver_id", "content","timestamp"]
     if not all(field in data for field in required):
         return jsonify({"message": "Missing required fields"}), 400
 
     new_msg = ChatMessage(
         sender_id=data["sender_id"],
         receiver_id=data["receiver_id"],
-        content=data["content"]
+        content=data["content"],
+        timestamp=data["timestamp"]
     )
     db.session.add(new_msg)
     db.session.commit()
@@ -1649,7 +1687,7 @@ def create_chat_message():
     return jsonify({
         "message": "Chat message created",
         "chat_id": new_msg.id,
-        "timestamp": new_msg.timestamp.isoformat()
+        "timestamp": datetime.fromtimestamp(new_msg.timestamp).isoformat()
     }), 201
 
 # 2. Get all messages between two employees (GET)
@@ -1683,7 +1721,7 @@ def get_chat_messages():
             "sender_id": msg.sender_id,
             "receiver_id": msg.receiver_id,
             "content": msg.content,
-            "timestamp": msg.timestamp.isoformat()
+            "timestamp": datetime.fromtimestamp(msg.timestamp).isoformat() #"timestamp": datetime.fromtimestamp(new_msg.timestamp).isoformat()  
         })
 
     return jsonify(results), 200
@@ -1851,14 +1889,15 @@ def create_communication_message(comm_id):
     new_msg = CommunicationMessage(
         communication_id=comm.id,
         sender_id=data["sender_id"],
-        content=data["content"]
+        content=data["content"],
+        timestamp=data["timestamp"]
     )
     db.session.add(new_msg)
     db.session.commit()
     return jsonify({
         "message": "Message created",
         "msg_id": new_msg.id,
-        "timestamp": new_msg.timestamp.isoformat()
+        "timestamp": datetime.fromtimestamp(new_msg.timestamp).isoformat()
     }), 201
 
 # 2. Get all messages for a communication
@@ -1870,14 +1909,14 @@ def get_communication_messages(comm_id):
     # Ensure the communication exists
     comm = Communication.query.get_or_404(comm_id)
 
-    msgs = CommunicationMessage.query.filter_by(communication_id=comm_id).order_by(CommunicationMessage.timestamp.asc()).all()
+    msgs = CommunicationMessage.query.filter_by(communication_id=comm).order_by(CommunicationMessage.timestamp.asc()).all()
     results = []
     for m in msgs:
         results.append({
             "id": m.id,
             "sender_id": m.sender_id,
             "content": m.content,
-            "timestamp": m.timestamp.isoformat()
+            "timestamp": datetime.fromtimestamp(m.timestamp).isoformat()
         })
     return jsonify(results), 200
 
@@ -1899,6 +1938,175 @@ def delete_communication_messages(comm_id):
     db.session.commit()
 
     return jsonify({"message": f"Deleted all messages for communication {comm_id}"}), 200
+
+#compliences
+@app.route('/api/compliences', methods=['POST'])
+def add_complience():
+    """
+    Create a new compliance record.
+    Expects a JSON payload with:
+      - subjects: string
+      - Discription: string
+      - date: string in format "YYYY-MM-DD"
+      - posted_by: string
+    """
+    data = request.get_json()
+    required_fields = ['subjects', 'Discription', 'date', 'posted_by']
+    if not data or not all(field in data for field in required_fields):
+        return jsonify({"message": "Missing required fields"}), 400
+
+    new_complience = Compliences(
+        subjects=data['subjects'],
+        Discription=data['Discription'],
+        date=data['date'],
+        posted_by=data['posted_by']
+    )
+    db.session.add(new_complience)
+    db.session.commit()
+
+    return jsonify({
+        "message": "Complience record created",
+        "id": new_complience.id
+    }), 201
+
+@app.route('/api/compliences', methods=['GET'])
+def get_compliences():
+    """
+    Retrieve all compliance records.
+    """
+    records = Compliences.query.all()
+    output = []
+    for record in records:
+        output.append({
+            "id": record.id,
+            "subjects": record.subjects,
+            "Discription": record.Discription,
+            "date": record.date,
+            "posted_by": record.posted_by
+        })
+    return jsonify({
+        "status": "success",
+        "data": output
+    }), 200
+
+
+#dashboard
+@app.route('/dashboardemployee/<int:employee_id>', methods=['GET'])
+def get_employee_dashboard(employee_id):
+    """
+    Returns a summarized 'dashboard' view for a specific employee:
+      - Tasks assigned to them (e.g., tasks due today, total tasks, etc.)
+      - Today's shift (if any)
+      - Example placeholders for hours worked, attendance status, weekly time data, etc.
+      - You can expand or modify the logic to include real calculations or additional data.
+    """
+
+    # 1. Fetch the employee or return 404 if not found
+    employee = Employee.query.get_or_404(employee_id)
+    employee_full_name = f"{employee.first_name} {employee.last_name}"
+
+    # 2. Retrieve all tasks assigned to this employee by name
+    #    (assuming `Task.assigned_to` stores the full name)
+    assigned_tasks = Task.query.filter_by(assigned_to=employee_full_name).all()
+
+    # 3. Identify which tasks are due today
+    today_str = datetime.now().strftime("%d-%m-%Y")  # Matches your Task.due_date format "dd-mm-yyyy"
+    tasks_due_today = [t for t in assigned_tasks if t.due_date == today_str]
+
+    # 4. Check if there's a shift scheduled for this employee today
+    #    (assuming Shift.staff_member also uses the employee's full name)
+    shift_today = Shift.query.filter(
+        Shift.staff_member.ilike(f"%{employee_full_name}%"),
+        Shift.date == today_str
+    ).first()
+    current_shift = shift_today.shift_name if shift_today else "No shift scheduled"
+
+    # 5. Example placeholders: hours today, attendance, weekly time tracking, etc.
+    #    Replace these with real calculations if you track time logs or attendance data.
+    hours_today = 8
+    attendance_status = "Present"
+    weekly_time_tracking = [0, 2, 3, 4, 6, 2, 0]  # Example placeholder array
+
+    records = Compliences.query.all()
+    output = []
+    for record in records:
+        output.append({
+            "id": record.id,
+            "subjects": record.subjects,
+            "Discription": record.Discription,
+            "date": record.date,
+            "posted_by": record.posted_by
+        })
+
+ # 6. Retrieve 'team chat' communications in which this employee is a participant
+    #    We parse the 'participants' field (JSON) and check if it contains 'employee_id'.
+    all_communications = Communication.query.all()
+    relevant_communications = []
+    for comm in all_communications:
+        try:
+            participant_list = json.loads(comm.participants)  # e.g. [1, 2, 3]
+        except:
+            participant_list = []
+        # Check if this employee is in the participant list
+        if employee_id in participant_list:
+            # Retrieve messages for this communication
+            messages_data = []
+            # comm.messages is available because of the backref
+            # sorted by timestamp ascending if you like:
+            sorted_msgs = sorted(comm.messages, key=lambda m: m.timestamp)
+            for msg in sorted_msgs:
+                messages_data.append({
+                    "id": msg.id,
+                    "sender_id": msg.sender_id,
+                    "content": msg.content,
+                    "timestamp": msg.timestamp.isoformat()
+                })
+            relevant_communications.append({
+                "communication_id": comm.id,
+                "subject": comm.subject,
+                "channel": comm.channel,
+                "priority": comm.priority,
+                "project": comm.project,
+                "date": comm.date,
+                "messages": messages_data
+            })
+    # 6. Build a response object with whatever data you want to show on the dashboard
+    dashboard_data = {
+        "employee_id": employee.id,
+        "employee_name": employee_full_name,
+        "current_shift": current_shift,
+        "hours_today": hours_today,
+        "attendance": attendance_status,
+        "weekly_time_tracking": weekly_time_tracking,
+        "tasks_due_today": len(tasks_due_today),
+        "todays_tasks": [
+            {
+                "task_id": t.id,
+                "title": t.title,
+                "due_date": t.due_date,
+                "priority": t.priority,
+                "status": t.status
+            }
+            for t in tasks_due_today
+        ],
+        # You could also show all assigned tasks, not just today's:
+        "total_assigned_tasks": len(assigned_tasks),
+        "all_tasks": [
+            {
+                "task_id": t.id,
+                "title": t.title,
+                "due_date": t.due_date,
+                "priority": t.priority,
+                "status": t.status
+            }
+            for t in assigned_tasks
+        ],
+        # Example placeholders for chat messages or announcements
+        "team_chat": relevant_communications,
+        "announcements": output
+    }
+
+    return jsonify(dashboard_data), 200
 
 
 
