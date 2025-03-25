@@ -186,7 +186,8 @@ class ChatMessage(db.Model):
     sender_id = db.Column(db.Integer, nullable=False)
     receiver_id = db.Column(db.Integer, nullable=False)
     content = db.Column(db.String(1000), nullable=False)
-    timestamp = db.Column(db.Integer, nullable=False)
+    # timestamp = db.Column(db.Integer, nullable=False)
+    timestamp = db.Column(db.String, nullable=False)
 
 class Communication(db.Model):
     __tablename__ = 'communications'
@@ -206,7 +207,8 @@ class CommunicationMessage(db.Model):
     communication_id = db.Column(db.Integer, db.ForeignKey('communications.id'), nullable=False)
     sender_id = db.Column(db.Integer, nullable=False)  # or store a string if needed
     content = db.Column(db.String(1000), nullable=False)
-    timestamp = db.Column(db.Integer, nullable=False)
+    # timestamp = db.Column(db.Integer, nullable=False)
+    timestamp = db.Column(db.String, nullable=False)
 
     # Relationship to access parent Communication if needed
     communication = db.relationship('Communication', backref='messages')
@@ -1702,7 +1704,8 @@ def create_chat_message():
     return jsonify({
         "message": "Chat message created",
         "chat_id": new_msg.id,
-        "timestamp": datetime.fromtimestamp(new_msg.timestamp).isoformat()
+        # "timestamp": datetime.fromtimestamp(new_msg.timestamp).isoformat()
+        "timpestamp":new_msg.timestamp
     }), 201
 
 # 2. Get all messages between two employees (GET)
@@ -1736,7 +1739,8 @@ def get_chat_messages():
             "sender_id": msg.sender_id,
             "receiver_id": msg.receiver_id,
             "content": msg.content,
-            "timestamp": datetime.fromtimestamp(msg.timestamp).isoformat() #"timestamp": datetime.fromtimestamp(new_msg.timestamp).isoformat()  
+            # "timestamp": datetime.fromtimestamp(msg.timestamp).isoformat() #"timestamp": datetime.fromtimestamp(new_msg.timestamp).isoformat()  
+            "timpestamp":msg.timestamp
         })
 
     return jsonify(results), 200
@@ -1912,7 +1916,8 @@ def create_communication_message(comm_id):
     return jsonify({
         "message": "Message created",
         "msg_id": new_msg.id,
-        "timestamp": datetime.fromtimestamp(new_msg.timestamp).isoformat()
+        # "timestamp": datetime.fromtimestamp(new_msg.timestamp).isoformat()
+        "timpestamp":new_msg.timestamp
     }), 201
 
 # 2. Get all messages for a communication
@@ -1931,7 +1936,8 @@ def get_communication_messages(comm_id):
             "id": m.id,
             "sender_id": m.sender_id,
             "content": m.content,
-            "timestamp": datetime.fromtimestamp(m.timestamp).isoformat()
+            # "timestamp": datetime.fromtimestamp(m.timestamp).isoformat()
+            "timpestamp":m.timestamp
         })
     return jsonify(results), 200
 
