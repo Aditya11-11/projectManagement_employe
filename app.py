@@ -1686,6 +1686,10 @@ def get_all_projects():
     records = Project.query.all()
     results = []
     for r in records:
+        try:
+            team_members_list = json.loads(r.team_members)
+        except Exception:
+            team_members_list = []
         results.append({
             "id": r.id,
             "project_name": r.project_name,
@@ -1693,7 +1697,7 @@ def get_all_projects():
             "project_lead": r.project_lead,
             "start_date": r.start_date,
             "due_date": r.due_date,
-            "team_members": r.team_members,
+            "team_members": team_members_list,  # Return as a list
             "project_status": r.project_status
         })
     return jsonify(results), 200
