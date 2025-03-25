@@ -2019,7 +2019,7 @@ def get_communication_messages(comm_id):
     # Ensure the communication exists
     comm = Communication.query.get_or_404(comm_id)
 
-    msgs = CommunicationMessage.query.filter_by(communication_id=comm).order_by(CommunicationMessage.timestamp.asc()).all()
+    msgs = CommunicationMessage.query.filter_by(communication_id=comm.id).order_by(CommunicationMessage.timestamp.asc()).all()
     results = []
     for m in msgs:
         results.append({
@@ -2040,7 +2040,7 @@ def delete_communication_messages(comm_id):
     # Ensure the communication exists
     comm = Communication.query.get_or_404(comm_id)
 
-    msgs = CommunicationMessage.query.filter_by(communication_id=comm_id).all()
+    msgs = CommunicationMessage.query.filter_by(communication_id=comm.id).order_by(CommunicationMessage.timestamp.asc()).all()
     if not msgs:
         return jsonify({"message": "No messages found for this communication"}), 404
 
