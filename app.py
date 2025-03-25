@@ -141,7 +141,13 @@ class Shift(db.Model): #SHIFT DATA
     employee = db.relationship('Employee', backref='shifts')
 
 
-
+# Define the ShiftTime model
+class ShiftTime(db.Model):
+    __tablename__ = 'shift_times'
+    id = db.Column(db.Integer, primary_key=True)
+    shift_type = db.Column(db.String(20), nullable=False)  # e.g., Morning, Afternoon, Evening, Night
+    start_time = db.Column(db.String(10), nullable=False)    # e.g., "07:00 AM"
+    end_time = db.Column(db.String(10), nullable=False) 
 
 # class PersonalInfo(db.Model):
 #     __tablename__ = 'personal_info'
@@ -166,6 +172,19 @@ class Document(db.Model):
     employee = db.relationship('Employee', backref='documents')
 
 
+# class Project(db.Model):
+#     __tablename__ = 'projects'
+    
+#     id = db.Column(db.Integer, primary_key=True)
+#     project_name = db.Column(db.String(100), nullable=False)
+#     description = db.Column(db.String(500), default='')
+#     project_lead = db.Column(db.String(100), default='')
+#     start_date = db.Column(db.String(10), default='')  # "dd-mm-yyyy"
+#     due_date = db.Column(db.String(10), default='')    # "dd-mm-yyyy"
+#     team_members = db.Column(db.Text(255), default='[]')  # could store JSON or comma-separated
+#     project_status = db.Column(db.String(50), default='Not Started')
+#     lead_id=db.Column(db.Integer,nullable=False)
+
 class Project(db.Model):
     __tablename__ = 'projects'
     
@@ -173,11 +192,11 @@ class Project(db.Model):
     project_name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.String(500), default='')
     project_lead = db.Column(db.String(100), default='')
+    lead_id = db.Column(db.Integer, nullable=False)  # NEW column
     start_date = db.Column(db.String(10), default='')  # "dd-mm-yyyy"
     due_date = db.Column(db.String(10), default='')    # "dd-mm-yyyy"
-    team_members = db.Column(db.Text(255), default='[]')  # could store JSON or comma-separated
+    team_members = db.Column(db.String(255), default='')  # could store JSON or comma-separated
     project_status = db.Column(db.String(50), default='Not Started')
-
 
 class ChatMessage(db.Model):
     __tablename__ = 'chat_messages'
@@ -720,6 +739,7 @@ def update_task(task_id):
         "project": "Project Name"
     }
     """
+    
     task = Task.query.get_or_404(task_id)
     data = request.get_json() or {}
 
@@ -1078,6 +1098,7 @@ def decide_leave_request(req_id):
     db.session.commit()
 
     if new_status == "Approved":
+        
         # Return updated balance
         return jsonify({
             "message": f"Leave request {req_id} approved.",
@@ -1215,11 +1236,14 @@ def get_shifts():
     Otherwise returns all shifts.
     """
     staff_filter = request.args.get("staff", type=str)
+    id_filter = request.args.get("employee_id")
     query = Shift.query
 
     if staff_filter:
         # case-insensitive substring match
         query = query.filter(Shift.staff_member.ilike(f"%{staff_filter}%"))
+    if id_filter :
+        query = query.filter_by(employee_id=id_filter)
     
     shifts = query.all()
     results = []
@@ -1280,6 +1304,54 @@ def delete_shift(shift_id):
     db.session.delete(s)
     db.session.commit()
     return jsonify({"message": f"Shift {shift_id} deleted"}), 200
+
+
+##################################################################################### ALOT_SHIF_TTIME
+# POST: Create a new shift time
+@app.route('/api/shifttime', methods=['POST'])
+def create_shift_time():
+    data = request.get_json() or {}
+    required_fields = ['shift_type', 'start_time', 'end_time']
+    if not all(field in data for field in required_fields):
+        return jsonify({"message": "Missing required fields: shift_type, start_time, and end_time are required"}), 400
+
+    new_shift = ShiftTime(
+        shift_type=data['shift_type'],
+        start_time=data['start_time'],
+        end_time=data['end_time']
+    )
+    db.session.add(new_shift)
+    db.session.commit()
+
+    return jsonify({
+        "message": "Shift time created successfully",
+        "shift_time_id": new_shift.id
+    }), 201
+
+# GET: Retrieve all shift times
+@app.route('/api/shifttime', methods=['GET'])
+def get_shift_times():
+    shifts = ShiftTime.query.all()
+    results = []
+    for shift in shifts:
+        results.append({
+            "id": shift.id,
+            "shift_type": shift.shift_type,
+            "start_time": shift.start_time,
+            "end_time": shift.end_time
+        })
+    return jsonify({
+        "status": "success",
+        "data": results
+    }), 200
+
+# DELETE: Delete a shift time by its ID
+@app.route('/api/shifttime/<int:shift_id>', methods=['DELETE'])
+def delete_shift_time(shift_id):
+    shift = ShiftTime.query.get_or_404(shift_id)
+    db.session.delete(shift)
+    db.session.commit()
+    return jsonify({"message": f"Shift time with id {shift_id} deleted successfully"}), 200
 
 # personal info
 # @app.route('/personal_info', methods=['POST'])
@@ -1567,9 +1639,21 @@ def create_project():
     #     return jsonify({"message": "Admins only"}), 403
 
     data = request.get_json() or {}
-    required_fields = ["project_name"]
-    if not all(f in data for f in required_fields):
-        return jsonify({"message": "Missing required fields"}), 400
+    required_fields = ["project_name", "lead_id"]
+    if not all(field in data for field in required_fields):
+        return jsonify({"message": "Missing required fields: project_name and project_lead_id are required"}), 400
+
+    # Get project lead id and verify it is an integer
+    try:
+        project_lead_id = int(data.get("lead_id"))
+    except ValueError:
+        return jsonify({"message": "Invalid project_lead_id"}), 400
+
+    # Lookup the employee using project_lead_id
+    project_lead_employee = Employee.query.get(project_lead_id)
+    if not project_lead_employee:
+        return jsonify({"message": f"Employee with id {project_lead_id} not found"}), 404
+
     
     team_members = data.get("team_members", [])
     if isinstance(team_members, list):
@@ -1577,16 +1661,18 @@ def create_project():
     else:
         team_members_str = json.dumps(team_members.split(','))
 
-
     new_project = Project(
         project_name=data["project_name"],
         description=data.get("description", ""),
         project_lead=data.get("project_lead", ""),
+        lead_id=project_lead_employee.id,  # Correct: pass the employee's ID
         start_date=data.get("start_date", ""),
         due_date=data.get("due_date", ""),
         team_members=team_members_str,
         project_status=data.get("project_status", "Not Started")
     )
+
+
     db.session.add(new_project)
     db.session.commit()
     return jsonify({"message": "Project created", "project_id": new_project.id}), 201
