@@ -345,7 +345,8 @@ def unified_login():
             "first_name": employee.first_name,
             "last_name": employee.last_name,
             "email": employee.email,
-            "role": employee.role
+            "role": employee.role,
+            "employee_geo_id":employee.employee_geo_id
         }), 200
 
     return jsonify({"message": "Invalid credentials"}), 401
