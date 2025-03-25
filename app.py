@@ -192,10 +192,10 @@ class Project(db.Model):
     project_name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.String(500), default='')
     project_lead = db.Column(db.String(100), default='')
-    lead_id = db.Column(db.Integer, nullable=False)  # NEW column
+    # lead_id = db.Column(db.Integer, nullable=False)  # NEW column
     start_date = db.Column(db.String(10), default='')  # "dd-mm-yyyy"
     due_date = db.Column(db.String(10), default='')    # "dd-mm-yyyy"
-    team_members = db.Column(db.String(255), default='')  # could store JSON or comma-separated
+    team_members = db.Column(db.JSON, default=[])
     project_status = db.Column(db.String(50), default='Not Started')
 
 class ChatMessage(db.Model):
@@ -1639,20 +1639,20 @@ def create_project():
     #     return jsonify({"message": "Admins only"}), 403
 
     data = request.get_json() or {}
-    required_fields = ["project_name", "lead_id"]
+    required_fields = ["project_name"]
     if not all(field in data for field in required_fields):
-        return jsonify({"message": "Missing required fields: project_name and project_lead_id are required"}), 400
+        return jsonify({"message": "Missing required fields: project_name are required"}), 400
 
     # Get project lead id and verify it is an integer
-    try:
-        project_lead_id = int(data.get("lead_id"))
-    except ValueError:
-        return jsonify({"message": "Invalid project_lead_id"}), 400
+    # try:
+    #     project_lead_id = int(data.get("lead_id"))
+    # except ValueError:
+    #     return jsonify({"message": "Invalid project_lead_id"}), 400
 
     # Lookup the employee using project_lead_id
-    project_lead_employee = Employee.query.get(project_lead_id)
-    if not project_lead_employee:
-        return jsonify({"message": f"Employee with id {project_lead_id} not found"}), 404
+    # project_lead_employee = Employee.query.get(project_lead_id)
+    # if not project_lead_employee:
+    #     return jsonify({"message": f"Employee with id {project_lead_id} not found"}), 404
 
     
     team_members = data.get("team_members", [])
@@ -1665,7 +1665,7 @@ def create_project():
         project_name=data["project_name"],
         description=data.get("description", ""),
         project_lead=data.get("project_lead", ""),
-        lead_id=project_lead_employee.id,  # Correct: pass the employee's ID
+        # lead_id=project_lead_employee.id,  # Correct: pass the employee's ID
         start_date=data.get("start_date", ""),
         due_date=data.get("due_date", ""),
         team_members=team_members_str,
