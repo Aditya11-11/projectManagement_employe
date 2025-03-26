@@ -83,7 +83,7 @@ class Task(db.Model): # Task Data
     due_date = db.Column(db.String(10), default='')  # "dd-mm-yyyy"
     priority = db.Column(db.String(10), default='Medium')  # "Low", "Medium", or "High"
     project=db.Column(db.String(100),nullable=False)
-    assigned_to = db.Column(db.String(100), default='')
+    assigned_to = db.Column(db.String(100), default='',nullable=True)
     status = db.Column(db.String(20), default="Pending")  # New field: Pending, In Progress, Completed
     employee_id = db.Column(db.Integer, db.ForeignKey('employees.id'), nullable=False)
     employee = db.relationship('Employee', backref='tasks')
@@ -651,7 +651,7 @@ def add_task():
     description = data.get("description", "")
     due_date = data.get("due_date", "")
     priority = data.get("priority", "Medium")
-    assigned_to = data.get("assigned_to", "")
+    # assigned_to = data.get("assigned_to", "")
     project=data.get("project")
     employee_id=data["employee_id"]
 
@@ -661,7 +661,7 @@ def add_task():
         description=description,
         due_date=due_date,
         priority=priority,
-        assigned_to=assigned_to,
+        # assigned_to=assigned_to,
         project=project,
         employee_id=employee_id,
 
